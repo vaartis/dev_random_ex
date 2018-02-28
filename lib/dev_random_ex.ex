@@ -1,9 +1,6 @@
 defmodule DevRandom do
   use GenServer
 
-  @typedoc "A type that VK returns from requests"
-  @type vk_result_t :: {:ok, map} | {:error, map | :invalid_method}
-
   def start_link(state) do
     GenServer.start_link(__MODULE__, state, name: __MODULE__)
   end
@@ -12,7 +9,12 @@ defmodule DevRandom do
 
   @spec init(args :: map) :: {atom, map}
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
-    vk_req("users.report", %{user_ids: -1}, args)
+
+    msgs_child = [
+      {DevRandom.Messages, args}
+    ]
+    Supervisor.start_link(msgs_child, [strategy: :one_for_one, name: DevRandom.Messages.Supervisor])
+
     {:ok, args}
   end
 
@@ -156,43 +158,6 @@ defmodule DevRandom do
     {:noreply, state}
   end
 
-  def handle_cast(:messages, state) do
-    require IEx
-
-    {:ok, dialogs} = vk_req("messages.getDialogs", %{unread: 1}, state)
-
-    Enum.each(dialogs["items"], fn dialog ->
-      message = dialog["message"]
-
-      if (not Map.has_key?(message, "chat_id")) and Map.has_key?(message, "body") do
-        sender_id = message["user_id"]
-
-        if Regex.match?(~r/предложк/iu, message["body"]) do
-          {:ok, sugg_posts} = vk_req(
-            "wall.get",
-            %{
-              owner_id: -state.group_id,
-              filter: "suggests"
-            },
-            state
-          )
-
-          case vk_req("messages.send", %{user_id: sender_id, message: sugg_posts["count"]}, state) do
-            {:error, %{"error_code" => 7}} ->
-              # Account is probably deleted or messages are blocked
-              {:ok, 1} = vk_req(
-              "messages.markAsRead",
-              %{peer_id: sender_id, start_message_id: message["id"]},
-              state)
-            {:ok, _} -> nil # All good
-          end
-        end
-      end
-    end)
-
-    {:noreply, state}
-  end
-
   ## Helpers
 
   @doc """
@@ -259,6 +224,9 @@ defmodule DevRandom do
       state
     )
   end
+
+  @typedoc "A type that VK returns from requests"
+  @type vk_result_t :: {:ok, map} | {:error, map | :invalid_method}
 
   @doc """
   Make a VK request to the `method_name` endpoint with the specified `params`,
