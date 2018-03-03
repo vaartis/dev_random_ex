@@ -4,7 +4,7 @@ defmodule DevRandom.MixProject do
   def project do
     [
       app: :dev_random_ex,
-      version: "0.1.1",
+      version: "0.1.2",
       elixir: "~> 1.6",
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -14,7 +14,7 @@ defmodule DevRandom.MixProject do
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
-      extra_applications: [:logger, :httpoison],
+      extra_applications: [:logger, :httpoison, :timex],
       mod: {DevRandom.Application, []}
     ]
   end

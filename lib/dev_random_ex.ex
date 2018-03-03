@@ -11,9 +11,10 @@ defmodule DevRandom do
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
 
     msgs_child = [
+      {DevRandom.RequestTimeAgent, []},
       {DevRandom.Messages, args}
     ]
-    Supervisor.start_link(msgs_child, [strategy: :one_for_one, name: DevRandom.Messages.Supervisor])
+    Supervisor.start_link(msgs_child, [strategy: :one_for_one, name: DevRandom.UtilsSupervisor])
 
     {:ok, args}
   end
@@ -238,6 +239,8 @@ defmodule DevRandom do
   @spec vk_req(method_name :: String.t, params :: map, state :: map)
   :: vk_result_t
   def vk_req(method_name, params, state) do
+
+    DevRandom.RequestTimeAgent.before_request(DevRandom.RequestTimeAgent)
     query_result = HTTPoison.get!(
       "https://api.vk.com/method/#{method_name}",
       [],
