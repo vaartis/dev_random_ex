@@ -30,3 +30,6 @@ rel/
 
 # Don't index pid files
 *.pid
+
+# Don't index the DETS database
+RecentImages.dets
