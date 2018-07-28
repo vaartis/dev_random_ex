@@ -22,6 +22,14 @@ defmodule DevRandom.Application do
       {DevRandom.Scheduler, []}
     ]
 
+    # Init DETS
+    {:ok, _ } = :dets.open_file(RecentImages, [file: 'RecentImages.dets'])
+
     Supervisor.start_link(children, [strategy: :one_for_one, name: DevRandom.Supervisor])
+  end
+
+  def stop(_state) do
+    # Close DETS file
+    :dets.close(RecentImages)
   end
 end
