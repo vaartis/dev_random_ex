@@ -5,7 +5,7 @@ use Mix.Config
 
 config :dev_random_ex,
   token: nil,
-  group_id: nil,
+  group_id: nil
   # TODO: implement logs properly
   # log_file: "dev_random.log"
 config :dev_random_ex, DevRandom.Scheduler,
