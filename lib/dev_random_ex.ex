@@ -274,7 +274,7 @@ defmodule DevRandom do
       {^image_hash, %{last_used: date, next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
 
       # Image was posted withing the next allowed use interval
-      Timex.today in Timex.Interval.new(from: date, until: next_use_allowed_in)
+      Timex.today in Timex.Interval.new(from: date, until: [days: next_use_allowed_in])
     end
   end
 
@@ -286,13 +286,13 @@ defmodule DevRandom do
 
     if Enum.empty?(lookup_result) do
       # Let it be two weeks for starters
-      :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: Timex.Duration.from_days(14)}})
+      :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: 14}})
     else
       # Get the last use
       {^image_hash, %{next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
 
       # Make the next allowed use time twice as long
-      :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: Timex.Duration.scale(next_use_allowed_in, 2)}})
+      :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: next_use_allowed_in * 2}})
     end
   end
 
