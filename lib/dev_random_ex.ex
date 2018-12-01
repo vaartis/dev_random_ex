@@ -77,7 +77,7 @@ defmodule DevRandom do
           "\nСтатистика предложенного поста:" <>
           (if stats[:skipped_no_atts] > 0, do: "\nПропущено постов без картинок: #{stats[:skipped_no_atts]}", else: "") <>
           (if stats[:skipped_already_used] > 0, do: "\nПропущено уже использованных картинок: #{stats[:skipped_already_used]}", else: "") <>
-          ("\nИтого попыток: #{stats[:tries]}")
+          ("\nИтого неудачных попыток: #{stats[:tries]}")
         else
           ""
         end
@@ -182,7 +182,7 @@ defmodule DevRandom do
                     (if stats[:skipped_closed_saved] > 0, do: "\nПропущено пользователей с закрытым альбомом сохранённых картинок: #{stats[:skipped_closed_saved]}", else: "") <>
                     (if stats[:skipped_already_used] > 0, do: "\nПропущено уже использованных картинок: #{stats[:skipped_already_used]}", else: "") <>
                     (if stats[:skipped_deleted] > 0, do: "\nПропущено удалённых пользователей: #{stats[:skipped_deleted]}", else: "") <>
-                    ("\nИтого попыток: #{stats[:tries]}")
+                    ("\nИтого неудачных попыток: #{stats[:tries]}")
                   else
                     ""
                   end
@@ -236,9 +236,9 @@ defmodule DevRandom do
   Increments a statistic and add a "failed try"
   """
   def inc_stat(state, key) do
-    state |>
-      Map.put(:stats, Map.update(state[:stats], key, nil, &(&1 + 1))) |> # Increment the stat
-      Map.put(:stats, Map.update(state[:stats], :tries, nil, &(&1 + 1))) # Increment tries
+    state = Map.put(state, :stats, Map.update(state[:stats], key, nil, &(&1 + 1))) # Increment the stat
+    state = Map.put(state, :stats, Map.update(state[:stats], :tries, nil, &(&1 + 1))) # Increment tries
+    state
   end
 
   def maybe_use_attachments(attachments) do
