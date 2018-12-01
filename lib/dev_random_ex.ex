@@ -1,4 +1,6 @@
 defmodule DevRandom do
+  require Logger
+
   use GenServer
 
   def start_link(state) do
@@ -16,12 +18,19 @@ defmodule DevRandom do
     ]
     Supervisor.start_link(msgs_child, [strategy: :one_for_one, name: DevRandom.UtilsSupervisor])
 
-    {:ok, args}
+    {
+      :ok,
+      Map.merge(
+        %{stats: null_stats()}, # Add empty stats
+        args
+      )
+    }
   end
 
   def handle_cast(:post, state) do
     Process.sleep(1000) # Just in case
 
+    # Check the suggested posts
     {:ok, suggested_posts_query} = vk_req(
       "wall.get",
       %{
@@ -32,7 +41,7 @@ defmodule DevRandom do
 
     post_count = suggested_posts_query["count"]
 
-    if post_count > 0 do
+    if post_count > 0 do # There are suggested posts
       suggested_post = random_from(
         %{
           method_name: "wall.get",
@@ -46,7 +55,7 @@ defmodule DevRandom do
         },
         state
       )
-      suggested_post_id = suggested_post["id"]
+      suggested_post_id = suggested_post["id"] # Select the random post
 
       # Check if post has attachments and there are images in them
       if Map.has_key?(suggested_post, "attachments") and maybe_use_attachments(suggested_post["attachments"]) do
@@ -63,20 +72,43 @@ defmodule DevRandom do
           end
         )
 
-        {:ok, _} = vk_req(
-          "wall.post",
-          %{
-            owner_id: -state.group_id,
-            post_id: suggested_post_id,
-            signed: signed,
-            message: maybe_anon_text,
-            atachments: attachments_text
-          },
-          state
-        )
+        text = if state[:stats] != null_stats() do
+          stats = state[:stats]
+          "\nСтатистика предложенного поста:" <>
+          (if stats[:skipped_no_atts] > 0, do: "\nПропущено постов без картинок: #{stats[:skipped_no_atts]}", else: "") <>
+          (if stats[:skipped_already_used] > 0, do: "\nПропущено уже использованных картинок: #{stats[:skipped_already_used]}", else: "") <>
+          ("\nИтого попыток: #{stats[:tries]}")
+        else
+          ""
+        end
+
+        case vk_req(
+              "wall.post",
+              %{
+                owner_id: -state.group_id,
+                post_id: suggested_post_id,
+                signed: signed,
+                message: maybe_anon_text <> text,
+                atachments: attachments_text
+              },
+              state
+            ) do
+          {:ok, _} -> :ok
+          {:error, e} ->
+          # 50 posts per day, too much
+          if e["error_code"] == 214, do: Logger.error "50 posts per day reached, can't post anything this iteration"
+        end
+
+        state = Map.put(state, :stats, null_stats())
+
+        {:noreply, state}
       else
         # Delete the post and restart if there's no attachments or all of them were used recently
         delete_suggested_post(suggested_post_id, state)
+
+        # Increment skip-due-to-no-atts stat
+        state = inc_stat(state, :skip_no_atts)
+
         handle_cast(:post, state)
       end
     else
@@ -103,7 +135,10 @@ defmodule DevRandom do
 
       maybe_album_query = vk_req("photos.getAlbums", %{owner_id: random_member, need_system: 1}, state)
       case maybe_album_query do
-        {:error, _}-> handle_cast(:post, state)
+        {:error, _}->
+          state = inc_stat(state, :skipped_deleted)
+
+          handle_cast(:post, state) # The user's account is probably deleted or something, just restart
         {:ok, album_query} ->
             albums = album_query["items"]
 
@@ -140,31 +175,71 @@ defmodule DevRandom do
                 if not image_used_recently?(image_hash) do
                   use_image(image_hash)
 
-                  {:ok, _} = vk_req(
-                    "wall.post",
-                    %{
-                      owner_id: -state.group_id,
-                      attachments: "photo#{random_member}_#{random_photo_id}",
-                      signed: 1
-                    },
-                    state
-                  )
+                  text = if state[:stats] != null_stats() do
+                    stats = state[:stats]
+                    "Статистика автоматического поста:" <>
+                    (if stats[:skipped_no_saved] > 0, do: "\nПропущено пользователей без сохранённых картинок: #{stats[:skipped_no_saved]}", else: "") <>
+                    (if stats[:skipped_closed_saved] > 0, do: "\nПропущено пользователей с закрытым альбомом сохранённых картинок: #{stats[:skipped_closed_saved]}", else: "") <>
+                    (if stats[:skipped_already_used] > 0, do: "\nПропущено уже использованных картинок: #{stats[:skipped_already_used]}", else: "") <>
+                    (if stats[:skipped_deleted] > 0, do: "\nПропущено удалённых пользователей: #{stats[:skipped_deleted]}", else: "") <>
+                    ("\nИтого попыток: #{stats[:tries]}")
+                  else
+                    ""
+                  end
+
+                  case vk_req(
+                        "wall.post",
+                        %{
+                          message: text,
+                          owner_id: -state.group_id,
+                          attachments: "photo#{random_member}_#{random_photo_id}",
+                          signed: 1
+                        },
+                        state
+                      ) do
+                    {:ok, _} -> :ok
+                    {:error, e} ->
+                    # 50 posts per day, too much
+                    if e["error_code"] == 214, do: Logger.error "50 posts per day reached, can't post anything this iteration"
+                  end
+
+                  state = Map.put(state, :stats, null_stats())
+
+                  {:noreply, state}
                 else
+                  # Image was used recently
+                  state = inc_stat(state, :skipped_already_used)
+
                   handle_cast(:post, state)
                 end
               else
+                # The user did not have ant saved images
+                state = inc_stat(state, :skipped_no_saved)
+
                 handle_cast(:post, state)
               end
             else
+              # The user's "saved images" album is closed
+              state = inc_stat(state, :skipped_closed_saved)
+
               handle_cast(:post, state)
             end
      end
     end
-
-    {:noreply, state}
   end
 
   ## Helpers
+
+  def null_stats, do: %{skipped_no_atts: 0, skipped_no_saved: 0, skipped_closed_saved: 0, skipped_already_used: 0, skipped_deleted: 0, tries: 0}
+
+  @doc """
+  Increments a statistic and add a "failed try"
+  """
+  def inc_stat(state, key) do
+    state |>
+      Map.put(:stats, Map.update(state[:stats], key, nil, &(&1 + 1))) |> # Increment the stat
+      Map.put(:stats, Map.update(state[:stats], :tries, nil, &(&1 + 1))) # Increment tries
+  end
 
   def maybe_use_attachments(attachments) do
     attachment_hashes = attachments |>
@@ -185,7 +260,7 @@ defmodule DevRandom do
   end
 
   @doc """
-  Checks if the image was used recently (withing the last week)
+  Checks if the image was used recently
   """
   def image_used_recently?(image_hash) do
     use Timex
@@ -196,10 +271,10 @@ defmodule DevRandom do
       # The image was not used at all
       false
     else
-      {^image_hash, date} = List.first(lookup_result)
+      {^image_hash, %{last_used: date, next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
 
-      # Image was posted withing the last week
-      Timex.today in Timex.Interval.new(from: date, until: [days: 7])
+      # Image was posted withing the next allowed use interval
+      Timex.today in Timex.Interval.new(from: date, until: next_use_allowed_in)
     end
   end
 
@@ -207,7 +282,18 @@ defmodule DevRandom do
   Mark image as used in DETS.
   """
   def use_image(image_hash) do
-    :dets.insert(RecentImages, {image_hash, Timex.today})
+    lookup_result = :dets.lookup(RecentImages, image_hash)
+
+    if Enum.empty?(lookup_result) do
+      # Let it be two weeks for starters
+      :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: Timex.Duration.from_days(14)}})
+    else
+      # Get the last use
+      {^image_hash, %{next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
+
+      # Make the next allowed use time twice as long
+      :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: Timex.Duration.scale(next_use_allowed_in, 2)}})
+    end
   end
 
   @doc """
