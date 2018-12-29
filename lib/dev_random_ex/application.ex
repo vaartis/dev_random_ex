@@ -25,7 +25,8 @@ defmodule DevRandom.Application do
     # Init DETS
     {:ok, _ } = :dets.open_file(RecentImages, [file: 'RecentImages.dets'])
 
-    Supervisor.start_link(children, [strategy: :one_for_one, name: DevRandom.Supervisor])
+    # Restart every minute for an hour if something goes wrong (e.g. VK starts timing out)
+    Supervisor.start_link(children, [strategy: :one_for_one, max_restarts: 60, max_seconds: 60, name: DevRandom.Supervisor])
   end
 
   def stop(_state) do
