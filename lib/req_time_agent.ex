@@ -12,7 +12,8 @@ defmodule DevRandom.RequestTimeAgent do
 
   It might not work as intended but should do the job fine
   """
-  def before_request(agent) do
+  def before_request() do
+    agent = __MODULE__
     # Update the time to now if it's the first time
     Agent.update(agent, fn st -> if is_nil(st.time) do put_in(st.time, Timex.now) else st end end)
 

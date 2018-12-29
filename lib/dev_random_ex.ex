@@ -375,7 +375,7 @@ defmodule DevRandom do
   :: vk_result_t
   def vk_req(method_name, params, state) do
 
-    DevRandom.RequestTimeAgent.before_request(DevRandom.RequestTimeAgent)
+    DevRandom.RequestTimeAgent.before_request()
     query_result = HTTPoison.get!(
       "https://api.vk.com/method/#{method_name}",
       [],
