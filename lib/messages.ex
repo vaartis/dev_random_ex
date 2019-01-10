@@ -9,7 +9,7 @@ defmodule DevRandom.Messages do
     # Get the long polling data and add it to the data that
     # we got from the parent process (presumably token and group id)
 
-    {:ok, lp_info} = DevRandom.vk_req("messages.getLongPollServer", %{need_pts: 1, lp_version: 2}, args)
+    {:ok, lp_info} = DevRandom.Platforms.VK.vk_req("messages.getLongPollServer", %{need_pts: 1, lp_version: 2})
     args = Map.put(args, :lp_info, lp_info)
 
     GenServer.cast(__MODULE__, :lp)

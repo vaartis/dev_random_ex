@@ -1,4 +1,4 @@
-defmodule DevRandom.RequestTimeAgent do
+defmodule DevRandom.Platforms.VK.RequestTimeAgent do
   use Agent
   use Timex
 

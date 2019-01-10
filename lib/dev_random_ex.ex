@@ -13,232 +13,84 @@ defmodule DevRandom do
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
 
     msgs_child = [
-      {DevRandom.RequestTimeAgent, []},
-      {DevRandom.Messages, args}
+      {DevRandom.Platforms.VK.RequestTimeAgent, []},
+      # {DevRandom.Messages, args}
     ]
     Supervisor.start_link(msgs_child, [strategy: :one_for_one, name: DevRandom.UtilsSupervisor])
 
     {
       :ok,
-      Map.merge(
-        %{stats: null_stats()}, # Add empty stats
-        args
-      )
+      args
     }
   end
 
   def handle_cast(:post, state) do
-    Process.sleep(1000) # Just in case
+    tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
+    tg_token = Application.get_env(:dev_random_ex, :tg_token)
 
-    # Check the suggested posts
-    {:ok, suggested_posts_query} = vk_req(
-      "wall.get",
-      %{
-        owner_id: -state.group_id,
-        filter: "suggests"
-      },
-    state)
+    post_or_posts = DevRandom.Platforms.VK.random_post_or_posts()
 
-    post_count = suggested_posts_query["count"]
+    case post_or_posts do
+      {:suggested, post} ->
+        text = post["text"]
+        text_msg_id = if text != "" do
+          %{"ok" => true, "result" => %{"message_id" => text_msg_id}} = tg_req("sendMessage", %{chat_id: tg_group_id, text: text})
+          text_msg_id
+        end
 
-    if post_count > 0 do # There are suggested posts
-      suggested_post = random_from(
-        %{
-          method_name: "wall.get",
-          all_count: post_count,
-          per_page_count: 100,
-          request_args: %{
-            owner_id: -state.group_id,
-            filter: "suggests"
-          },
-          first_page: suggested_posts_query["items"]
-        },
-        state
-      )
-      suggested_post_id = suggested_post["id"] # Select the random post
+        post["attachments"]
+        |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
+        |> Enum.reject(fn att -> att["doc"]["type"] in [5, 6] end) # Discard audio/video
+        |> Enum.each(
+        fn %{"photo" => photo, "type" => "photo"} ->
+          biggest =
+            Enum.find_value(
+              ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
+              fn size -> photo[size] end
+            ) # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
+          tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, reply_to_message_id: text_msg_id})
 
-      # Check if post has attachments and there are images in them
-      if Map.has_key?(suggested_post, "attachments") and maybe_use_attachments(suggested_post["attachments"]) do
+          # Mark image as used
+          image_hash = :crypto.hash(:md5, HTTPoison.get!(photo["photo_75"]).body)
+          use_image(image_hash)
 
-        signed = (if String.contains?(String.downcase(suggested_post["text"]), "анон"), do: 0, else: 1)
-        maybe_anon_text = Regex.replace(~r/анон/iu, suggested_post["text"], "", [global: false])
-        attachments_text = Enum.map_join(
-          suggested_post["attachments"],
-          ",",
-          fn attachment ->
-            type = attachment["type"]
-            info = attachment[type]
-            "#{type}#{info["owner_id"]}_#{info["id"]}"
-          end
+          %{"doc" => doc, "type" => "doc"} ->
+            case doc["type"] do
+              3 ->  # GIF
+                tg_req("sendAnimation", %{chat_id: tg_group_id, animation: doc["url"], reply_to_message_id: text_msg_id})
+              4 -> # Image
+                tg_req("sendPhoto", %{chat_id: tg_group_id, photo: doc["url"], reply_to_message_id: text_msg_id})
+              _ ->
+                tg_req("sendDocument", %{chat_id: tg_group_id, document: doc["url"], reply_to_message_id: text_msg_id})
+            end
+        end
         )
 
-        text = if state[:stats] != null_stats() do
-          stats = state[:stats]
-          "\nСтатистика предложенного поста:" <>
-          (if stats[:skipped_no_atts] > 0, do: "\nПропущено постов без картинок: #{stats[:skipped_no_atts]}", else: "") <>
-          (if stats[:skipped_already_used] > 0, do: "\nПропущено уже использованных картинок: #{stats[:skipped_already_used]}", else: "") <>
-          ("\nИтого неудачных попыток: #{stats[:tries]}")
-        else
-          ""
-        end
+        # Delete the post
+        DevRandom.Platforms.VK.delete_suggested_post(post["id"])
+      {:saved, image} ->
+        biggest =
+          Enum.find_value(
+            ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
+            fn size -> image[size] end
+          ) # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
+        tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, caption: "[Source](https://vk.com/photo#{image["owner_id"]}_#{image["id"]})", parse_mode: "Markdown"})
 
-        case vk_req(
-              "wall.post",
-              %{
-                owner_id: -state.group_id,
-                post_id: suggested_post_id,
-                signed: signed,
-                message: maybe_anon_text <> text,
-                atachments: attachments_text
-              },
-              state
-            ) do
-          {:ok, _} -> :ok
-          {:error, e} ->
-          # 50 posts per day, too much
-          if e["error_code"] == 214, do: Logger.error "50 posts per day reached, can't post anything this iteration"
-        end
-
-        state = Map.put(state, :stats, null_stats())
-
-        {:noreply, state}
-      else
-        # Delete the post and restart if there's no attachments or all of them were used recently
-        delete_suggested_post(suggested_post_id, state)
-
-        # Increment skip-due-to-no-atts stat
-        state = inc_stat(state, :skip_no_atts)
-
-        handle_cast(:post, state)
-      end
-    else
-      {:ok, members_query} = vk_req(
-        "groups.getMembers",
-        %{group_id: state.group_id},
-        state
-      )
-
-      members_count = members_query["count"]
-
-      random_member = random_from(
-        %{
-          method_name: "groups.getMembers",
-          all_count: members_count,
-          per_page_count: 1000,
-          request_args: %{
-            group_id: state.group_id
-          },
-          first_page: members_query["items"]
-        },
-        state
-      )
-
-      maybe_album_query = vk_req("photos.getAlbums", %{owner_id: random_member, need_system: 1}, state)
-      case maybe_album_query do
-        {:error, _}->
-          state = inc_stat(state, :skipped_deleted)
-
-          handle_cast(:post, state) # The user's account is probably deleted or something, just restart
-        {:ok, album_query} ->
-            albums = album_query["items"]
-
-            # There are saved photos
-            if Enum.any?(albums, &(&1["id"] == -15)) do
-              {:ok, saved_photos_query} = vk_req(
-                "photos.get",
-                %{
-                  owner_id: random_member,
-                  album_id: "saved"
-                },
-                state
-              )
-
-              saved_photos_count = saved_photos_query["count"]
-
-              if saved_photos_count > 0 do
-                random_photo = random_from(
-                  %{
-                    method_name: "photos.get",
-                    all_count: saved_photos_count,
-                    per_page_count: 1000,
-                    request_args: %{
-                      owner_id: random_member,
-                      album_id: "saved"
-                    },
-                    first_page: saved_photos_query["items"]
-                  },
-                  state
-                )
-                random_photo_id = random_photo["id"]
-
-                image_hash = :crypto.hash(:md5, HTTPoison.get!(random_photo["photo_75"]).body)
-                if not image_used_recently?(image_hash) do
-                  use_image(image_hash)
-
-                  text = if state[:stats] != null_stats() do
-                    stats = state[:stats]
-                    "Статистика автоматического поста:" <>
-                    (if stats[:skipped_no_saved] > 0, do: "\nПропущено пользователей без сохранённых картинок: #{stats[:skipped_no_saved]}", else: "") <>
-                    (if stats[:skipped_closed_saved] > 0, do: "\nПропущено пользователей с закрытым альбомом сохранённых картинок: #{stats[:skipped_closed_saved]}", else: "") <>
-                    (if stats[:skipped_already_used] > 0, do: "\nПропущено уже использованных картинок: #{stats[:skipped_already_used]}", else: "") <>
-                    (if stats[:skipped_deleted] > 0, do: "\nПропущено удалённых пользователей: #{stats[:skipped_deleted]}", else: "") <>
-                    ("\nИтого неудачных попыток: #{stats[:tries]}")
-                  else
-                    ""
-                  end
-
-                  case vk_req(
-                        "wall.post",
-                        %{
-                          message: text,
-                          owner_id: -state.group_id,
-                          attachments: "photo#{random_member}_#{random_photo_id}",
-                          signed: 1
-                        },
-                        state
-                      ) do
-                    {:ok, _} -> :ok
-                    {:error, e} ->
-                    # 50 posts per day, too much
-                    if e["error_code"] == 214, do: Logger.error "50 posts per day reached, can't post anything this iteration"
-                  end
-
-                  state = Map.put(state, :stats, null_stats())
-
-                  {:noreply, state}
-                else
-                  # Image was used recently
-                  state = inc_stat(state, :skipped_already_used)
-
-                  handle_cast(:post, state)
-                end
-              else
-                # The user did not have ant saved images
-                state = inc_stat(state, :skipped_no_saved)
-
-                handle_cast(:post, state)
-              end
-            else
-              # The user's "saved images" album is closed
-              state = inc_stat(state, :skipped_closed_saved)
-
-              handle_cast(:post, state)
-            end
-     end
     end
+
+    {:noreply, state}
   end
 
-  ## Helpers
+  def tg_req(method_name, params) do
+    tg_token = Application.get_env(:dev_random_ex, :tg_token)
 
-  def null_stats, do: %{skipped_no_atts: 0, skipped_no_saved: 0, skipped_closed_saved: 0, skipped_already_used: 0, skipped_deleted: 0, tries: 0}
+    query_result = HTTPoison.get!(
+      "https://api.telegram.org/bot#{tg_token}/#{method_name}",
+      [],
+      [params: params]
+    )
 
-  @doc """
-  Increments a statistic and add a "failed try"
-  """
-  def inc_stat(state, key) do
-    state = Map.put(state, :stats, Map.update(state[:stats], key, nil, &(&1 + 1))) # Increment the stat
-    state = Map.put(state, :stats, Map.update(state[:stats], :tries, nil, &(&1 + 1))) # Increment tries
-    state
+    Poison.decode! query_result.body
   end
 
   def maybe_use_attachments(attachments) do
@@ -293,109 +145,6 @@ defmodule DevRandom do
 
       # Make the next allowed use time twice as long
       :dets.insert(RecentImages, {image_hash, %{last_used: Timex.today, next_use_allowed_in: next_use_allowed_in * 2}})
-    end
-  end
-
-  @doc """
-  Select a random entity from a paged series of requests.
-
-  `all_count` is how much of entities there are, `per_page_count` is how
-  much to fetch per page, `request_args` are additional arguments to `vk_req/3`,
-  `method_name` is the method name passed to `vk_req/3`, `first_page` is the page that
-  was fetched to retreive the number of images before
-  """
-  @spec random_from(
-    params :: %{
-      method_name: String.t,
-      all_count: integer,
-      per_page_count: integer,
-      request_args: map,
-      first_page: [...]
-    },
-    state :: map) :: term
-  def random_from(
-    %{
-      method_name: method_name,
-      all_count: all_count,
-      per_page_count: per_page_count,
-      request_args: request_args,
-      first_page: first_page
-    },
-    state
-  ) do
-    Enum.random(if all_count > per_page_count do
-      total_pages = div(all_count, per_page_count)
-
-      get_page = fn page ->
-        {:ok, current_page} = vk_req(
-        method_name,
-        Map.merge(%{count: per_page_count, offset: page * per_page_count}, request_args),
-        state)
-
-        current_page["items"]
-      end
-
-
-      # Use the first 100 entities as the beginning, then collect other pages begging from
-      # the second one (there must me at least two pages if there's more then `per_page_count` entities)
-      first_page ++ Enum.flat_map(2..total_pages, &get_page.(&1))
-    else
-      # Just return what we already had
-      first_page
-    end)
-  end
-
-  @doc """
-  Deletes the specified post, returning the request result.
-  """
-  @spec delete_suggested_post(post_id :: integer, state :: map)
-  :: vk_result_t
-  def delete_suggested_post(post_id, state) do
-    vk_req(
-      "wall.delete",
-      %{
-        owner_id: -state.group_id,
-        post_id: post_id
-      },
-      state
-    )
-  end
-
-  @typedoc "A type that VK returns from requests"
-  @type vk_result_t :: {:ok, map} | {:error, map | :invalid_method}
-
-  @doc """
-  Make a VK request to the `method_name` endpoint with the specified `params`,
-  propagating the error (extracting it from the `error` field).
-
-  If VK returns one or unwrapping the returned `response`. If VK returns a 403 page,
-  then the error will be reported as `{:error, :invalid_method}`
-  """
-  @spec vk_req(method_name :: String.t, params :: map, state :: map)
-  :: vk_result_t
-  def vk_req(method_name, params, state) do
-
-    DevRandom.RequestTimeAgent.before_request()
-    query_result = HTTPoison.get!(
-      "https://api.vk.com/method/#{method_name}",
-      [],
-      [
-        params: Map.merge(params, %{access_token: state.token, v: "5.73"})
-      ])
-
-    if query_result.status_code == 403 do
-      # VK doesnt actually return an error on invalid method, although it should,
-      # so we'll do it ourselves
-      {:error, :invalid_method}
-    else
-      result = Poison.decode! query_result.body
-
-      # Propagate the error if there is one
-      if Map.has_key?(result, "error") do
-        {:error, result["error"]}
-      else
-        {:ok, result["response"]}
-      end
     end
   end
 end
