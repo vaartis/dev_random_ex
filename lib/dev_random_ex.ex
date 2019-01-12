@@ -26,7 +26,6 @@ defmodule DevRandom do
 
   def handle_cast(:post, state) do
     tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
-    tg_token = Application.get_env(:dev_random_ex, :tg_token)
 
     post_or_posts = DevRandom.Platforms.VK.random_post_or_posts()
 
@@ -38,44 +37,55 @@ defmodule DevRandom do
           text_msg_id
         end
 
-        post["attachments"]
+        filtered_atts = post["attachments"]
         |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
         |> Enum.reject(fn att -> att["doc"]["type"] in [5, 6] end) # Discard audio/video
-        |> Enum.each(
-        fn %{"photo" => photo, "type" => "photo"} ->
+
+        # If there's at least one new image, use everything and post it
+        if maybe_use_attachments(filtered_atts) do
+          Enum.each(filtered_atts,
+            fn %{"photo" => photo, "type" => "photo"} ->
+              biggest =
+                Enum.find_value(
+                  ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
+                  fn size -> photo[size] end
+                ) # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
+              tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, reply_to_message_id: text_msg_id})
+
+              # Mark image as used
+              image_hash = :crypto.hash(:md5, HTTPoison.get!(photo["photo_75"]).body)
+              use_image(image_hash)
+
+              %{"doc" => doc, "type" => "doc"} ->
+                case doc["type"] do
+                  3 ->  # GIF
+                    tg_req("sendAnimation", %{chat_id: tg_group_id, animation: doc["url"], reply_to_message_id: text_msg_id})
+                  4 -> # Image
+                    tg_req("sendPhoto", %{chat_id: tg_group_id, photo: doc["url"], reply_to_message_id: text_msg_id})
+                  _ ->
+                    tg_req("sendDocument", %{chat_id: tg_group_id, document: doc["url"], reply_to_message_id: text_msg_id})
+                end
+            end
+          )
+
+          # Delete the post
+          DevRandom.Platforms.VK.delete_suggested_post(post["id"])
+        else
+          handle_cast(:post, state) # Restart
+        end
+      {:saved, image} ->
+        image_hash = :crypto.hash(:md5, HTTPoison.get!(image["photo_75"]).body)
+        if not image_used_recently?(image_hash) do
           biggest =
             Enum.find_value(
               ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
-              fn size -> photo[size] end
+              fn size -> image[size] end
             ) # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
-          tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, reply_to_message_id: text_msg_id})
-
-          # Mark image as used
-          image_hash = :crypto.hash(:md5, HTTPoison.get!(photo["photo_75"]).body)
-          use_image(image_hash)
-
-          %{"doc" => doc, "type" => "doc"} ->
-            case doc["type"] do
-              3 ->  # GIF
-                tg_req("sendAnimation", %{chat_id: tg_group_id, animation: doc["url"], reply_to_message_id: text_msg_id})
-              4 -> # Image
-                tg_req("sendPhoto", %{chat_id: tg_group_id, photo: doc["url"], reply_to_message_id: text_msg_id})
-              _ ->
-                tg_req("sendDocument", %{chat_id: tg_group_id, document: doc["url"], reply_to_message_id: text_msg_id})
-            end
+          tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, caption: "[Source](https://vk.com/photo#{image["owner_id"]}_#{image["id"]})", parse_mode: "Markdown"})
+        else
+          # Restart
+          handle_cast(:post, state)
         end
-        )
-
-        # Delete the post
-        DevRandom.Platforms.VK.delete_suggested_post(post["id"])
-      {:saved, image} ->
-        biggest =
-          Enum.find_value(
-            ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
-            fn size -> image[size] end
-          ) # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
-        tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, caption: "[Source](https://vk.com/photo#{image["owner_id"]}_#{image["id"]})", parse_mode: "Markdown"})
-
     end
 
     {:noreply, state}
