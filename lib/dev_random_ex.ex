@@ -82,6 +82,8 @@ defmodule DevRandom do
               fn size -> image[size] end
             ) # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
           tg_req("sendPhoto", %{chat_id: tg_group_id, photo: biggest, caption: "[Source](https://vk.com/photo#{image["owner_id"]}_#{image["id"]})", parse_mode: "Markdown"})
+
+          use_image(image_hash)
         else
           # Restart
           handle_cast(:post, state)
