@@ -68,49 +68,38 @@ defmodule DevRandom.Platforms.VK do
           first_page: members_query["items"]
         })
 
-      maybe_album_query = vk_req("photos.getAlbums", %{owner_id: random_member, need_system: 1})
-
-      case maybe_album_query do
-        # The user's account is probably deleted or something, just restart
-        {:error, _} ->
-          random_post_or_posts()
-
-        {:ok, album_query} ->
-          albums = album_query["items"]
-
-          # There are saved photos
-          if Enum.any?(albums, &(&1["id"] == -15)) do
-            {:ok, saved_photos_query} =
-              vk_req(
-                "photos.get",
-                %{
-                  owner_id: random_member,
-                  album_id: "saved"
-                }
-              )
-
-            saved_photos_count = saved_photos_query["count"]
-
-            if saved_photos_count > 0 do
-              random_photo =
-                random_from(%{
-                  method_name: "photos.get",
-                  all_count: saved_photos_count,
-                  per_page_count: 1000,
-                  request_args: %{
-                    owner_id: random_member,
-                    album_id: "saved"
-                  },
-                  first_page: saved_photos_query["items"]
-                })
-
-              {:saved, random_photo}
-            else
-              random_post_or_posts()
-            end
-          else
-            random_post_or_posts()
-          end
+      # Get the user's albums first
+      with {:ok, %{"items" => albums}} <-
+             vk_req("photos.getAlbums", %{owner_id: random_member, need_system: 1}),
+           # There's a saved pictures album
+           true <- Enum.any?(albums, &(&1["id"] == -15)),
+           # Get the album info
+           {:ok, saved_photos_query} <-
+             vk_req(
+               "photos.get",
+               %{
+                 owner_id: random_member,
+                 album_id: "saved"
+               }
+             ),
+           # Get the amount of saved photos
+           saved_photos_count <- saved_photos_query["count"],
+           # There are any photos in there
+           true <- saved_photos_count > 0 do
+        {:saved,
+         random_from(%{
+           method_name: "photos.get",
+           all_count: saved_photos_count,
+           per_page_count: 1000,
+           request_args: %{
+             owner_id: random_member,
+             album_id: "saved"
+           },
+           first_page: saved_photos_query["items"]
+         })}
+      else
+        # Try searching for posts again if anything fails
+        _ -> random_post_or_posts()
       end
     end
   end
