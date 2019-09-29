@@ -7,6 +7,10 @@ defmodule DevRandom do
     GenServer.start_link(__MODULE__, state, name: __MODULE__)
   end
 
+  def post() do
+    GenServer.cast(__MODULE__, :post)
+  end
+
   ## Callbacks
 
   @spec init(args :: map) :: {atom, map}
