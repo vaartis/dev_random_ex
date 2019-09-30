@@ -31,114 +31,69 @@ defmodule DevRandom do
   def handle_cast(:post, state) do
     tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
 
-    post_or_posts = DevRandom.Platforms.VK.random_post_or_posts()
+    post = DevRandom.Platforms.VK.post()
 
-    case post_or_posts do
-      {:suggested, post} ->
-        text = post["text"]
+    if maybe_use_attachments(post.attachments) do
+      # transform attachments into a more universal format to
+      # send them later
+      tfed_attachments =
+        Enum.map(
+          post.attachments,
+          fn att ->
+            case att.type do
+              # GIF
+              :animation ->
+                {"sendAnimation", :animation, att.url}
 
-        text_msg_id =
-          if text != "" do
-            %{"ok" => true, "result" => %{"message_id" => text_msg_id}} =
-              tg_req("sendMessage", %{chat_id: tg_group_id, text: text})
+              # Image
+              :photo ->
+                {"sendPhoto", :photo, att.url}
 
-            text_msg_id
-          end
-
-        filtered_atts =
-          post["attachments"]
-          |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
-          # Discard audio/video
-          |> Enum.reject(fn att -> att["doc"]["type"] in [5, 6] end)
-
-        # If there's at least one new image, use everything and post it
-        if maybe_use_attachments(filtered_atts) do
-          Enum.each(
-            filtered_atts,
-            fn
-              %{"photo" => photo, "type" => "photo"} ->
-                biggest =
-                  Enum.find_value(
-                    [
-                      "photo_2560",
-                      "photo_1280",
-                      "photo_807",
-                      "photo_604",
-                      "photo_130",
-                      "photo_75"
-                    ],
-                    fn size -> photo[size] end
-                  )
-
-                # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
-                tg_req("sendPhoto", %{
-                  chat_id: tg_group_id,
-                  photo: biggest,
-                  reply_to_message_id: text_msg_id
-                })
-
-                # Mark image as used
-                image_hash = :crypto.hash(:md5, HTTPoison.get!(photo["photo_75"]).body)
-                use_image(image_hash)
-
-              %{"doc" => doc, "type" => "doc"} ->
-                case doc["type"] do
-                  # GIF
-                  3 ->
-                    tg_req("sendAnimation", %{
-                      chat_id: tg_group_id,
-                      animation: doc["url"],
-                      reply_to_message_id: text_msg_id
-                    })
-
-                  # Image
-                  4 ->
-                    tg_req("sendPhoto", %{
-                      chat_id: tg_group_id,
-                      photo: doc["url"],
-                      reply_to_message_id: text_msg_id
-                    })
-
-                  _ ->
-                    tg_req("sendDocument", %{
-                      chat_id: tg_group_id,
-                      document: doc["url"],
-                      reply_to_message_id: text_msg_id
-                    })
-                end
+              # Other
+              :other ->
+                {"sendDocument", :document, att.url}
             end
-          )
+          end
+        )
 
-          # Delete the post
-          DevRandom.Platforms.VK.delete_suggested_post(post["id"])
-        else
-          # Restart
-          handle_cast(:post, state)
-        end
-
-      {:saved, image} ->
-        image_hash = :crypto.hash(:md5, HTTPoison.get!(image["photo_75"]).body)
-
-        if not image_used_recently?(image_hash) do
-          biggest =
-            Enum.find_value(
-              ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
-              fn size -> image[size] end
-            )
-
-          # Should return the biggest size. nil is not a thruthy value, therefore the find function will ignore it
-          tg_req("sendPhoto", %{
-            chat_id: tg_group_id,
-            photo: biggest,
-            caption: "[Source](https://vk.com/photo#{image["owner_id"]}_#{image["id"]})",
-            parse_mode: "Markdown"
+      case tfed_attachments do
+        [{endpointName, parameterName, url}] ->
+          # Send the request to the selected endpoint with a parmeter
+          # named parameterName, as all these endpoints have different
+          # parameter names
+          tg_req(endpointName, %{
+            :chat_id => tg_group_id,
+            parameterName => url,
+            :caption => post.text,
+            :parse_mode => "Markdown"
           })
 
-          use_image(image_hash)
-        else
-          # Restart
-          handle_cast(:post, state)
-        end
+        atts ->
+          text_msg_id =
+            if post.text do
+              %{"ok" => true, "result" => %{"message_id" => text_msg_id}} =
+                tg_req("sendMessage", %{
+                  chat_id: tg_group_id,
+                  text: post.text,
+                  parse_mode: "Markdown"
+                })
+
+              text_msg_id
+            end
+
+          Enum.each(
+            atts,
+            fn {endpointName, parameterName, url} ->
+              tg_req(endpointName, %{
+                :chat_id => tg_group_id,
+                parameterName => url,
+                :reply_to_message_id => text_msg_id
+              })
+            end
+          )
+      end
+
+      DevRandom.Platforms.VK.cleanup(post)
     end
 
     {:noreply, state}
@@ -160,18 +115,18 @@ defmodule DevRandom do
   def maybe_use_attachments(attachments) do
     attachment_hashes =
       attachments
-      |> Enum.filter(&(&1["type"] in ["doc", "photo"]))
       |> Enum.map(fn a ->
-        case a["type"] do
-          "photo" -> :crypto.hash(:md5, HTTPoison.get!(a["photo"]["photo_75"]).body)
-          "doc" -> :crypto.hash(:md5, HTTPoison.get!(a["doc"]["url"]).body)
-        end
+        if a.hashing_url,
+          do: :crypto.hash(:md5, HTTPoison.get!(a.hashing_url).body),
+          else: nil
       end)
+      |> Enum.filter(fn a -> not is_nil(a) end)
 
     if Enum.all?(attachment_hashes, &image_used_recently?/1) do
       false
     else
       Enum.each(attachment_hashes, &use_image/1)
+
       true
     end
   end

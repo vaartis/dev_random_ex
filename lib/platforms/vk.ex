@@ -1,5 +1,16 @@
 defmodule DevRandom.Platforms.VK do
-  def random_post_or_posts do
+  alias DevRandom.Platforms.Post
+  alias DevRandom.Platforms.PostAttachment
+
+  @behaviour DevRandom.Platforms.PostSource
+
+  @impl true
+  def cleanup(post) do
+    if post.cleanup_data, do: delete_suggested_post(post.cleanup_data)
+  end
+
+  @impl true
+  def post do
     # Just in case
     Process.sleep(1000)
 
@@ -34,19 +45,76 @@ defmodule DevRandom.Platforms.VK do
       # Select the random post
       suggested_post_id = suggested_post["id"]
 
-      # Check if post has attachments and there are images in them
-      if Map.has_key?(suggested_post, "attachments") and
-           suggested_post["attachments"]
-           |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
-           |> Enum.count() > 0 do
-        # Return the whole post
-        {:suggested, suggested_post}
-      else
-        # Delete the post and restart if there's no attachments
-        delete_suggested_post(suggested_post_id)
+      with true <- Map.has_key?(suggested_post, "attachments"),
+           # Filter the attachments
+           filtered_atts <-
+             suggested_post["attachments"]
+             |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
+             # Discard audio/video
+             |> Enum.reject(fn att -> att["doc"]["type"] in [5, 6] end),
+           # Any attachments left?
+           true <- Enum.count(filtered_atts) > 0 do
+        attachments =
+          Enum.map(
+            filtered_atts,
+            fn
+              %{"photo" => photo, "type" => "photo"} ->
+                biggest =
+                  Enum.find_value(
+                    [
+                      "photo_2560",
+                      "photo_1280",
+                      "photo_807",
+                      "photo_604",
+                      "photo_130",
+                      "photo_75"
+                    ],
+                    fn size -> photo[size] end
+                  )
 
-        # Select another post
-        random_post_or_posts()
+                %PostAttachment{
+                  type: :photo,
+                  # URL for the image
+                  url: biggest,
+                  # URL for the smallest image to hash it
+                  hashing_url: photo["photo_75"]
+                }
+
+              %{"doc" => doc, "type" => "doc"} ->
+                type =
+                  case doc["type"] do
+                    # GIF
+                    3 ->
+                      :animation
+
+                    # Image
+                    4 ->
+                      :photo
+
+                    # Other
+                    _ ->
+                      :other
+                  end
+
+                %PostAttachment{
+                  type: type,
+                  url: doc["url"]
+                }
+            end
+          )
+
+        %Post{
+          attachments: attachments,
+          cleanup_data: suggested_post_id,
+          text: if(suggested_post["text"] != "", do: suggested_post["text"], else: nil)
+        }
+      else
+        _ ->
+          # Delete the post
+          delete_suggested_post(suggested_post_id)
+
+          # Select another post
+          post()
       end
     else
       {:ok, members_query} =
@@ -86,20 +154,37 @@ defmodule DevRandom.Platforms.VK do
            saved_photos_count <- saved_photos_query["count"],
            # There are any photos in there
            true <- saved_photos_count > 0 do
-        {:saved,
-         random_from(%{
-           method_name: "photos.get",
-           all_count: saved_photos_count,
-           per_page_count: 1000,
-           request_args: %{
-             owner_id: random_member,
-             album_id: "saved"
-           },
-           first_page: saved_photos_query["items"]
-         })}
+        random_saved =
+          random_from(%{
+            method_name: "photos.get",
+            all_count: saved_photos_count,
+            per_page_count: 1000,
+            request_args: %{
+              owner_id: random_member,
+              album_id: "saved"
+            },
+            first_page: saved_photos_query["items"]
+          })
+
+        biggest =
+          Enum.find_value(
+            ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
+            fn size -> random_saved[size] end
+          )
+
+        %Post{
+          attachments: [
+            %PostAttachment{
+              type: :photo,
+              url: biggest,
+              hashing_url: random_saved["photo_75"]
+            }
+          ],
+          text: "[Source](https://vk.com/photo#{random_saved["owner_id"]}_#{random_saved["id"]})"
+        }
       else
         # Try searching for posts again if anything fails
-        _ -> random_post_or_posts()
+        _ -> post()
       end
     end
   end
@@ -118,7 +203,7 @@ defmodule DevRandom.Platforms.VK do
   """
   @spec vk_req(method_name :: String.t(), params :: map) ::
           vk_result_t
-  def vk_req(method_name, params) do
+  defp vk_req(method_name, params) do
     token = Application.get_env(:dev_random_ex, :token)
 
     __MODULE__.RequestTimeAgent.before_request()
@@ -199,7 +284,7 @@ defmodule DevRandom.Platforms.VK do
   """
   @spec delete_suggested_post(post_id :: integer) ::
           vk_result_t
-  def delete_suggested_post(post_id) do
+  defp delete_suggested_post(post_id) do
     group_id = Application.get_env(:dev_random_ex, :group_id)
 
     vk_req(
