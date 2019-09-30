@@ -143,8 +143,8 @@ defmodule DevRandom do
       # The image was not used at all
       false
     else
-      {^image_hash, %{last_used: date, next_use_allowed_in: next_use_allowed_in}} =
-        List.first(lookup_result)
+      [{^image_hash, %{last_used: date, next_use_allowed_in: next_use_allowed_in}}] =
+        lookup_result
 
       # Image was posted withing the next allowed use interval
       Timex.today() in Timex.Interval.new(from: date, until: [days: next_use_allowed_in])
