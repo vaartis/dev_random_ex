@@ -1,94 +1,122 @@
 defmodule DevRandom.Messages do
   use GenServer
 
-  def start_link(state) do
-    GenServer.start_link(__MODULE__, state, name: __MODULE__)
+  alias DevRandom.Platforms.Post
+  alias DevRandom.Platforms.Telegram.PostAttachment
+
+  import DevRandom, only: [tg_req: 2]
+
+  def start_link(_state) do
+    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  def init(args) do
-    # Get the long polling data and add it to the data that
-    # we got from the parent process (presumably token and group id)
+  def init(state) do
+    GenServer.cast(__MODULE__, :check_updates)
 
-    {:ok, lp_info} = DevRandom.Platforms.VK.vk_req("messages.getLongPollServer", %{need_pts: 1, lp_version: 2})
-    args = Map.put(args, :lp_info, lp_info)
-
-    GenServer.cast(__MODULE__, :lp)
-
-    {:ok, args}
+    {:ok, state}
   end
 
-  def handle_cast(:lp, state) do
-    %{"server" => server, "key" => key, "ts" => ts} = state.lp_info
+  def handle_cast(:check_updates, state) do
+    req_params =
+      (
+        pars = %{timeout: 60 * 5, allowed_updates: ["message"]}
 
-    lp_request = HTTPoison.get!(
-      "https://#{server}",
-      [],
-      [
-        params: %{
-          act: "a_check",
-          key: key,
-          ts: ts,
-          wait: 25,
-          mode: 32,
-          version: 2
-        },
-        recv_timeout: 30_000
-      ]
-    ).body |> Poison.decode!
-
-    state = if Map.has_key?(lp_request, "failed") do
-      # In case of an error, update the state variable
-      # This will fale if failed == 4, but that shouldn't happen
-      case lp_request["failed"] do
-        1 -> put_in(state.lp_info["ts"], lp_request["ts"])
-        v when v in [2, 3] ->
-          {:ok, lp_info} =
-            DevRandom.vk_req("messages.getLongPollServer", %{need_pts: 1, lp_version: 2}, state)
-          state |>
-            put_in([:lp_info, "key"], lp_info["key"]) |>
-            put_in([:lp_info, "ts"], lp_info["key"])
-      end
-    else
-      Enum.each(
-        lp_request["updates"],
-        fn update ->
-          if Enum.fetch!(update, 0) == 4 do
-            # ID 4 means there's a пnew message, we might as well ignore other updates
-
-            # Sender id is either the user id or the chat id
-            [_, message_id, _flags, sender_id, _timestamp, message_text] = update
-
-            if Regex.match?(~r/предложк/iu, message_text) do
-              {:ok, sugg_posts} = DevRandom.vk_req(
-                "wall.get",
-                %{
-                  owner_id: -state.group_id,
-                  filter: "suggests"
-                },
-                state
-              )
-
-              case DevRandom.vk_req("messages.send", %{peer_id: sender_id, message: sugg_posts["count"]}, state) do
-                {:error, %{"error_code" => 7}} ->
-                  # Account is probably deleted or messages are blocked
-                  {:ok, 1} = DevRandom.vk_req(
-                  "messages.markAsRead",
-                  %{peer_id: sender_id, start_message_id: message_id},
-                  state)
-                {:ok, _} -> nil # All good
-              end
-            end
-          end
-        end
+        maybe_next_update_id = state[:next_update_id]
+        # Put an offset in if it came from a previous run
+        if maybe_next_update_id, do: Map.put(pars, :offset, maybe_next_update_id), else: pars
       )
 
-      # Update the ts and pts fields and return it from the if statement
-      state |>
-        put_in([:lp_info, "ts"], lp_request["ts"]) |>
-        put_in([:lp_info, "pts"], lp_request["pts"])
+    %{"ok" => true, "result" => updates} = tg_req("getUpdates", req_params)
+
+    for update <- updates do
+      with %{"message" => message, "update_id" => update_id} <- update,
+           %{
+             "chat" => %{"type" => "private"},
+             "from" => %{"id" => user_id, "first_name" => fname},
+             "message_id" => msg_id
+           } <- message do
+        {type, attachment_file_id} =
+          case message do
+            %{"photo" => photo_sizes} ->
+              {:photo, List.last(photo_sizes) |> Map.get("file_id")}
+
+            %{"animation" => %{"file_id" => file_id}} ->
+              {:animation, file_id}
+
+            _ ->
+              {nil, nil}
+          end
+
+        # If the attachments are those allowed
+        if type && attachment_file_id do
+          anon_regex = ~r/^anon/i
+
+          is_anon =
+            if message["caption"], do: String.match?(message["caption"], anon_regex), else: false
+
+          from_str =
+            if not is_anon do
+              "from [#{fname}](tg://user?id=#{user_id})\n"
+            else
+              ""
+            end
+
+          caption =
+            if(message["caption"],
+              do: from_str <> String.replace(message["caption"], anon_regex, ""),
+              else: from_str
+            )
+            |> String.trim()
+
+          # update_id is used as a key because it's unique-ish
+          :dets.insert(
+            BotReceivedImages,
+            {
+              update_id,
+              %Post{
+                attachments: [
+                  %PostAttachment{
+                    file_id: attachment_file_id,
+                    type: type
+                  }
+                ],
+                text: caption
+              }
+            }
+          )
+
+          size =
+            (
+              info = :dets.info(BotReceivedImages)
+
+              {:size, size} = List.keyfind(info, :size, 0)
+
+              size
+            )
+
+          post_or_posts = if size == 1, do: "post", else: "posts"
+
+          if size > 0 do
+            tg_req("sendMessage", %{
+              chat_id: user_id,
+              reply_to_message_id: msg_id,
+              text: "There are now #{size} #{post_or_posts} in queue"
+            })
+          end
+        end
+      end
     end
 
-    GenServer.cast(__MODULE__, :lp)
+    GenServer.cast(__MODULE__, :check_updates)
+
+    state =
+      if not Enum.empty?(updates) do
+        last_update_id = List.last(updates) |> Map.get("update_id")
+
+        state |> Map.put(:next_update_id, last_update_id + 1)
+      else
+        state
+      end
 
     {:noreply, state}
   end

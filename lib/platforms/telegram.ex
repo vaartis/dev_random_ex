@@ -1,0 +1,45 @@
+defmodule DevRandom.Platforms.Telegram.PostAttachment do
+  @enforce_keys [:file_id, :type]
+  defstruct [:file_id, :type]
+end
+
+defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.Telegram.PostAttachment do
+  import DevRandom, only: [tg_req: 2]
+
+  def type(data), do: data.type
+
+  def md5(data) do
+    %{"ok" => true, "result" => %{"file_path" => file_path}} =
+      tg_req("getFile", %{file_id: data.file_id})
+
+    tg_token = Application.get_env(:dev_random_ex, :tg_token)
+
+    full_url = "https://api.telegram.org/file/bot#{tg_token}/#{file_path}"
+
+    :crypto.hash(:md5, HTTPoison.get!(full_url).body)
+  end
+
+  def tg_file_string(data), do: data.file_id
+end
+
+defmodule DevRandom.Platforms.Telegram do
+  alias DevRandom.Platforms.Post
+
+  @behaviour DevRandom.Platforms.PostSource
+
+  @impl true
+  def post() do
+    key = :dets.first(BotReceivedImages)
+
+    if key != :"$end_of_table" do
+      [{key, post}] = :dets.lookup(BotReceivedImages, key)
+
+      %Post{post | cleanup_data: key}
+    else
+      nil
+    end
+  end
+
+  @impl true
+  def cleanup(post), do: :dets.delete(BotReceivedImages, post.cleanup_data)
+end

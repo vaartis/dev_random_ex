@@ -27,7 +27,8 @@ defmodule DevRandom.MixProject do
       {:quantum, "~> 2.2"},
       {:timex, "~> 3.0"},
       {:distillery, "~> 2.0", runtime: false},
-      {:pid_file, "~> 0.1.0"}
+      {:pid_file, "~> 0.1.0"},
+      {:jason, "~> 1.1"}
     ]
   end
 end

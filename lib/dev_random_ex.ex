@@ -3,6 +3,8 @@ defmodule DevRandom do
 
   use GenServer
 
+  alias DevRandom.Platforms.Attachment
+
   def start_link(state) do
     GenServer.start_link(__MODULE__, state, name: __MODULE__)
   end
@@ -16,8 +18,8 @@ defmodule DevRandom do
   @spec init(args :: map) :: {atom, map}
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
     msgs_child = [
-      {DevRandom.Platforms.VK.RequestTimeAgent, []}
-      # {DevRandom.Messages, args}
+      {DevRandom.Platforms.VK.RequestTimeAgent, []},
+      {DevRandom.Messages, []}
     ]
 
     Supervisor.start_link(msgs_child, strategy: :one_for_one, name: DevRandom.UtilsSupervisor)
@@ -31,7 +33,16 @@ defmodule DevRandom do
   def handle_cast(:post, state) do
     tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
 
-    post = DevRandom.Platforms.VK.post()
+    sources = [
+      DevRandom.Platforms.Telegram,
+      DevRandom.Platforms.VK
+    ]
+
+    {post, source} =
+      Enum.find_value(sources, fn src ->
+        post = src.post()
+        if post, do: {post, src}
+      end)
 
     if maybe_use_attachments(post.attachments) do
       # transform attachments into a more universal format to
@@ -43,15 +54,15 @@ defmodule DevRandom do
             case att.type do
               # GIF
               :animation ->
-                {"sendAnimation", :animation, att.url}
+                {"sendAnimation", :animation, Attachment.tg_file_string(att)}
 
               # Image
               :photo ->
-                {"sendPhoto", :photo, att.url}
+                {"sendPhoto", :photo, Attachment.tg_file_string(att)}
 
               # Other
               :other ->
-                {"sendDocument", :document, att.url}
+                {"sendDocument", :document, Attachment.tg_file_string(att)}
             end
           end
         )
@@ -92,9 +103,9 @@ defmodule DevRandom do
             end
           )
       end
-
-      DevRandom.Platforms.VK.cleanup(post)
     end
+
+    source.cleanup(post)
 
     {:noreply, state}
   end
@@ -103,10 +114,11 @@ defmodule DevRandom do
     tg_token = Application.get_env(:dev_random_ex, :tg_token)
 
     query_result =
-      HTTPoison.get!(
+      HTTPoison.post!(
         "https://api.telegram.org/bot#{tg_token}/#{method_name}",
-        [],
-        params: params
+        Jason.encode!(params),
+        [{"content-type", "application/json"}],
+        recv_timeout: :infinity
       )
 
     Poison.decode!(query_result.body)
@@ -115,12 +127,7 @@ defmodule DevRandom do
   def maybe_use_attachments(attachments) do
     attachment_hashes =
       attachments
-      |> Enum.map(fn a ->
-        if a.hashing_url,
-          do: :crypto.hash(:md5, HTTPoison.get!(a.hashing_url).body),
-          else: nil
-      end)
-      |> Enum.filter(fn a -> not is_nil(a) end)
+      |> Enum.map(fn a -> Attachment.md5(a) end)
 
     if Enum.all?(attachment_hashes, &image_used_recently?/1) do
       false

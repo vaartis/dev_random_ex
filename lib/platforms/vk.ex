@@ -1,6 +1,25 @@
+defmodule DevRandom.Platforms.VK.PostAttachment do
+  @enforce_keys [:url, :type]
+  @doc """
+  - `url` is the URL of the attachment
+  - `type` is the type of the attachment (:photo, :animation, :other)
+  - `hashing_url` is the URL to download from when hashing for deduplication
+  """
+  defstruct [:url, :type, :hashing_url]
+end
+
+defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachment do
+  def type(data), do: data.type
+
+  def md5(data), do: :crypto.hash(:md5, HTTPoison.get!(data.hashing_url).body)
+
+  def tg_file_string(data), do: data.url
+end
+
 defmodule DevRandom.Platforms.VK do
   alias DevRandom.Platforms.Post
-  alias DevRandom.Platforms.PostAttachment
+
+  alias DevRandom.Platforms.VK.PostAttachment
 
   @behaviour DevRandom.Platforms.PostSource
 
@@ -98,7 +117,8 @@ defmodule DevRandom.Platforms.VK do
 
                 %PostAttachment{
                   type: type,
-                  url: doc["url"]
+                  url: doc["url"],
+                  hashing_url: doc["url"]
                 }
             end
           )
