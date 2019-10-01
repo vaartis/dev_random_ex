@@ -94,13 +94,13 @@ defmodule DevRandom.Messages do
               size
             )
 
-          post_or_posts = if size == 1, do: "post", else: "posts"
+          {are_or_is, post_or_posts} = if size == 1, do: {"is", "post"}, else: {"are", "posts"}
 
           if size > 0 do
             tg_req("sendMessage", %{
               chat_id: user_id,
               reply_to_message_id: msg_id,
-              text: "There are now #{size} #{post_or_posts} in queue"
+              text: "There #{are_or_is} now #{size} #{post_or_posts} in the queue"
             })
           end
         end
