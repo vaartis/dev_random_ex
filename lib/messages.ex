@@ -1,6 +1,7 @@
 defmodule DevRandom.Messages do
   use GenServer
 
+  alias DevRandom.Platforms.Attachment
   alias DevRandom.Platforms.Post
   alias DevRandom.Platforms.Telegram.PostAttachment
 
@@ -68,39 +69,66 @@ defmodule DevRandom.Messages do
             )
             |> String.trim()
 
-          # update_id is used as a key because it's unique-ish
-          :dets.insert(
-            BotReceivedImages,
-            {
-              update_id,
-              %Post{
-                attachments: [
-                  %PostAttachment{
-                    file_id: attachment_file_id,
-                    type: type
-                  }
-                ],
-                text: caption
-              }
-            }
-          )
+          attachment = %PostAttachment{
+            file_id: attachment_file_id,
+            type: type
+          }
 
-          size =
+          used_recently_msg =
             (
-              info = :dets.info(BotReceivedImages)
+              hash = Attachment.md5(attachment)
 
-              {:size, size} = List.keyfind(info, :size, 0)
+              if DevRandom.image_used_recently?(hash) do
+                [{^hash, %{last_used: last_used, next_use_allowed_in: next_use_allowed_in}}] =
+                  :dets.lookup(RecentImages, hash)
 
-              size
+                next_allowed_date = Date.add(last_used, next_use_allowed_in)
+
+                "The image was already posted recently.\
+ Last post date: #{last_used}, next allowed post date: #{next_allowed_date}"
+              end
             )
 
-          {are_or_is, post_or_posts} = if size == 1, do: {"is", "post"}, else: {"are", "posts"}
+          # Only add the image if it wasn't used recently
+          if !used_recently_msg do
+            post = %Post{
+              attachments: [attachment],
+              text: caption
+            }
 
-          if size > 0 do
+            # update_id is used as a key because it's unique-ish
+            :dets.insert(
+              BotReceivedImages,
+              {
+                update_id,
+                post
+              }
+            )
+
+            size =
+              (
+                info = :dets.info(BotReceivedImages)
+
+                {:size, size} = List.keyfind(info, :size, 0)
+
+                size
+              )
+
+            {are_or_is, post_or_posts} = if size == 1, do: {"is", "post"}, else: {"are", "posts"}
+
+            if size > 0 do
+              tg_req("sendMessage", %{
+                chat_id: user_id,
+                reply_to_message_id: msg_id,
+                text: "There #{are_or_is} now #{size} #{post_or_posts} in the queue"
+              })
+            end
+          else
+            # Otherwise inform that it was
             tg_req("sendMessage", %{
               chat_id: user_id,
               reply_to_message_id: msg_id,
-              text: "There #{are_or_is} now #{size} #{post_or_posts} in the queue"
+              text: used_recently_msg
             })
           end
         end
