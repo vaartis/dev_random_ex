@@ -33,10 +33,16 @@ defmodule DevRandom do
   def handle_cast(:post, state) do
     tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
 
-    sources = [
-      DevRandom.Platforms.Telegram,
-      DevRandom.Platforms.VK
-    ]
+    :random.seed(:os.timestamp())
+    # Post from telegram if there's any, and shuffle other possible sources
+    sources =
+      [
+        DevRandom.Platforms.Telegram
+      ] ++
+        Enum.shuffle([
+          DevRandom.Platforms.VK,
+          DevRandom.Platforms.OldDanbooru.Safebooru
+        ])
 
     {post, source} =
       Enum.find_value(sources, fn src ->
