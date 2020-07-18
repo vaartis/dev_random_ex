@@ -16,4 +16,9 @@ config :dev_random_ex, DevRandom.Scheduler,
     {"*/30 * * * *", {DevRandom, :post, []}}
   ]
 
+config :dev_random_ex, DevRandom.Mailer,
+  adapter: Swoosh.Adapters.Sendmail,
+  to: "",
+  enabled: false
+
 config :pid_file, file: "./dev_random_ex.pid"

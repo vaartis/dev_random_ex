@@ -29,7 +29,9 @@ defmodule DevRandom.MixProject do
       {:distillery, "~> 2.0", runtime: false},
       {:pid_file, "~> 0.1.0"},
       {:jason, "~> 1.1"},
-      {:sweet_xml, "~> 0.3"}
+      {:sweet_xml, "~> 0.3"},
+      {:swoosh, "~> 1.0"},
+      {:gen_smtp, "~> 0.13"}
     ]
   end
 end

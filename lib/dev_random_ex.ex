@@ -187,4 +187,25 @@ defmodule DevRandom do
       )
     end
   end
+
+  @impl true
+  def terminate(reason, _) when reason not in [:normal, :shutdown] do
+    env = Application.get_env(:dev_random_ex, DevRandom.Mailer)
+
+    if env[:enabled] do
+      import Swoosh.Email
+
+      body = """
+      Error:
+      #{inspect(reason, pretty: true)}
+      """
+
+      new()
+      |> to(env[:to])
+      |> from("DevRandomEx")
+      |> subject("Error in dev_random_ex")
+      |> text_body(body)
+      |> DevRandom.Mailer.deliver!()
+    end
+  end
 end
