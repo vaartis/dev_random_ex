@@ -11,7 +11,8 @@ end
 defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachment do
   def type(data), do: data.type
 
-  def md5(data), do: :crypto.hash(:md5, HTTPoison.get!(data.hashing_url).body)
+  def md5(data),
+    do: :crypto.hash(:md5, HTTPoison.get!(data.hashing_url, [], timeout: 60_000).body)
 
   def tg_file_string(data), do: data.url
 end
@@ -232,7 +233,8 @@ defmodule DevRandom.Platforms.VK do
       HTTPoison.get!(
         "https://api.vk.com/method/#{method_name}",
         [],
-        params: Map.merge(params, %{access_token: token, v: "5.73"})
+        params: Map.merge(params, %{access_token: token, v: "5.73"}),
+        timeout: 60_000
       )
 
     if query_result.status_code == 403 do
