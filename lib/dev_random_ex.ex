@@ -15,6 +15,7 @@ defmodule DevRandom do
 
   ## Callbacks
 
+  @impl true
   @spec init(args :: map) :: {atom, map}
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
     msgs_child = [
@@ -30,6 +31,7 @@ defmodule DevRandom do
     }
   end
 
+  @impl true
   def handle_cast(:post, state) do
     tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
 
@@ -73,6 +75,30 @@ defmodule DevRandom do
           end
         )
 
+      anon_regex = ~r/^(anon)|(анон)/i
+      is_anon = Regex.match?(anon_regex, post.text || "")
+
+      text =
+        cond do
+          post.source_link ->
+            case post.source_link do
+              {:telegram, fname, user_id} when not is_anon ->
+                "from [#{fname}](tg://user?id=#{user_id})\n"
+
+              {:telegram, _, _} when is_anon ->
+                ""
+
+              link ->
+                "[Source](#{link})"
+            end
+
+          post.text ->
+            Regex.replace(anon_regex, post.text, "")
+
+          true ->
+            ""
+        end
+
       case tfed_attachments do
         [{endpointName, parameterName, url}] ->
           # Send the request to the selected endpoint with a parmeter
@@ -81,22 +107,22 @@ defmodule DevRandom do
           tg_req(endpointName, %{
             :chat_id => tg_group_id,
             parameterName => url,
-            :caption => post.text,
+            :caption => text,
             :parse_mode => "Markdown"
           })
 
         atts ->
           text_msg_id =
-            if post.text do
+            (
               %{"ok" => true, "result" => %{"message_id" => text_msg_id}} =
                 tg_req("sendMessage", %{
                   chat_id: tg_group_id,
-                  text: post.text,
+                  text: text,
                   parse_mode: "Markdown"
                 })
 
               text_msg_id
-            end
+            )
 
           Enum.each(
             atts,
@@ -110,6 +136,8 @@ defmodule DevRandom do
           )
       end
     end
+
+    {:ok, _} = DevRandom.Platforms.VK.make_vk_post(post)
 
     source.cleanup(post)
 

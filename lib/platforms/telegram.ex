@@ -8,18 +8,25 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.Telegram.PostAt
 
   def type(data), do: data.type
 
-  def md5(data) do
+  defp photo_url(data) do
     %{"ok" => true, "result" => %{"file_path" => file_path}} =
       tg_req("getFile", %{file_id: data.file_id})
 
     tg_token = Application.get_env(:dev_random_ex, :tg_token)
 
-    full_url = "https://api.telegram.org/file/bot#{tg_token}/#{file_path}"
+    "https://api.telegram.org/file/bot#{tg_token}/#{file_path}"
+  end
+
+  def md5(data) do
+    full_url = photo_url(data)
 
     :crypto.hash(:md5, HTTPoison.get!(full_url).body)
   end
 
   def tg_file_string(data), do: data.file_id
+
+  def vk_file_string(data),
+    do: DevRandom.Platforms.VK.upload_photo_to_wall(data.type, photo_url(data))
 end
 
 defmodule DevRandom.Platforms.Telegram do

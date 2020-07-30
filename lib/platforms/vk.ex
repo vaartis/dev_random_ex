@@ -1,11 +1,11 @@
 defmodule DevRandom.Platforms.VK.PostAttachment do
-  @enforce_keys [:url, :type]
+  @enforce_keys [:url, :type, :vk_string]
   @doc """
   - `url` is the URL of the attachment
   - `type` is the type of the attachment (:photo, :animation, :other)
   - `hashing_url` is the URL to download from when hashing for deduplication
   """
-  defstruct [:url, :type, :hashing_url]
+  defstruct [:url, :type, :hashing_url, :vk_string, :suggested_post_id]
 end
 
 defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachment do
@@ -15,6 +15,8 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachme
     do: :crypto.hash(:md5, HTTPoison.get!(data.hashing_url, [], timeout: 60_000).body)
 
   def tg_file_string(data), do: data.url
+
+  def vk_file_string(data), do: data.vk_string
 end
 
 defmodule DevRandom.Platforms.VK do
@@ -26,7 +28,8 @@ defmodule DevRandom.Platforms.VK do
 
   @impl true
   def cleanup(post) do
-    if post.cleanup_data, do: delete_suggested_post(post.cleanup_data)
+    if post.cleanup_data && !Enum.at(post.attachments, 0).suggested_post_id,
+      do: delete_suggested_post(post.cleanup_data)
   end
 
   @impl true
@@ -97,7 +100,9 @@ defmodule DevRandom.Platforms.VK do
                   # URL for the image
                   url: biggest,
                   # URL for the smallest image to hash it
-                  hashing_url: photo["photo_75"]
+                  hashing_url: photo["photo_75"],
+                  # VK name for the photo
+                  vk_string: "photo#{photo["owner_id"]}_#{photo["id"]}"
                 }
 
               %{"doc" => doc, "type" => "doc"} ->
@@ -119,7 +124,10 @@ defmodule DevRandom.Platforms.VK do
                 %PostAttachment{
                   type: type,
                   url: doc["url"],
-                  hashing_url: doc["url"]
+                  hashing_url: doc["url"],
+                  vk_string: "doc#{doc["owner_id"]}_#{doc["id"]}",
+                  # Just store it in attachments since posts are uniform
+                  suggested_post_id: suggested_post_id
                 }
             end
           )
@@ -198,10 +206,11 @@ defmodule DevRandom.Platforms.VK do
             %PostAttachment{
               type: :photo,
               url: biggest,
-              hashing_url: random_saved["photo_75"]
+              hashing_url: random_saved["photo_75"],
+              vk_string: "photo#{random_saved["owner_id"]}_#{random_saved["id"]}"
             }
           ],
-          text: "[Source](https://vk.com/photo#{random_saved["owner_id"]}_#{random_saved["id"]})"
+          source_link: "https://vk.com/photo#{random_saved["owner_id"]}_#{random_saved["id"]}"
         }
       else
         # Try searching for posts again if anything fails
@@ -215,13 +224,11 @@ defmodule DevRandom.Platforms.VK do
   @typedoc "A type that VK returns from requests"
   @type vk_result_t :: {:ok, map} | {:error, map | :invalid_method}
 
-  @doc """
-  Make a VK request to the `method_name` endpoint with the specified `params`,
-  propagating the error (extracting it from the `error` field).
-
-  If VK returns one or unwrapping the returned `response`. If VK returns a 403 page,
-  then the error will be reported as `{:error, :invalid_method}`
-  """
+  # Make a VK request to the `method_name` endpoint with the specified `params`,
+  # propagating the error (extracting it from the `error` field).
+  #
+  # If VK returns one or unwrapping the returned `response`. If VK returns a 403 page,
+  # then the error will be reported as `{:error, :invalid_method}`
   @spec vk_req(method_name :: String.t(), params :: map) ::
           vk_result_t
   defp vk_req(method_name, params) do
@@ -253,14 +260,14 @@ defmodule DevRandom.Platforms.VK do
     end
   end
 
-  @doc """
-  Select a random entity from a paged series of requests.
-
-  `all_count` is how much of entities there are, `per_page_count` is how
-  much to fetch per page, `request_args` are additional arguments to `vk_req/3`,
-  `method_name` is the method name passed to `vk_req/3`, `first_page` is the page that
-  was fetched to retreive the number of images before
-  """
+  #
+  # Select a random entity from a paged series of requests.
+  #
+  # `all_count` is how much of entities there are, `per_page_count` is how
+  # much to fetch per page, `request_args` are additional arguments to `vk_req/3`,
+  # `method_name` is the method name passed to `vk_req/3`, `first_page` is the page that
+  # was fetched to retreive the number of images before
+  #
   @spec random_from(
           params :: %{
             method_name: String.t(),
@@ -301,9 +308,7 @@ defmodule DevRandom.Platforms.VK do
     )
   end
 
-  @doc """
-  Deletes the specified post, returning the request result.
-  """
+  # Deletes the specified post, returning the request result.
   @spec delete_suggested_post(post_id :: integer) ::
           vk_result_t
   defp delete_suggested_post(post_id) do
@@ -316,5 +321,99 @@ defmodule DevRandom.Platforms.VK do
         post_id: post_id
       }
     )
+  end
+
+  def upload_photo_to_wall(type, url) do
+    data = HTTPoison.get!(url).body
+
+    group_id = Application.get_env(:dev_random_ex, :group_id)
+
+    {method, field} =
+      case type do
+        :photo -> {"photos.getWallUploadServer", "photo"}
+        _ -> {"docs.getWallUploadServer", "file"}
+      end
+
+    {:ok, %{"upload_url" => upload_url}} =
+      vk_req(
+        method,
+        %{group_id: group_id}
+      )
+
+    filename = Path.basename(url)
+
+    upload_result =
+      HTTPoison.post!(
+        upload_url,
+        {:multipart,
+         [{field, data, {"form-data", [{"name", field}, {"filename", filename}]}, []}]}
+      ).body
+      |> Poison.decode!()
+
+    case type do
+      :photo ->
+        %{"server" => server, "photo" => photo, "hash" => hash} = upload_result
+
+        {:ok, [saved_photo]} =
+          vk_req(
+            "photos.saveWallPhoto",
+            %{server: server, photo: photo, hash: hash, group_id: group_id}
+          )
+
+        "photo#{saved_photo["owner_id"]}_#{saved_photo["id"]}"
+
+      _ ->
+        %{"file" => file} = upload_result
+
+        {:ok, [saved_doc]} =
+          vk_req(
+            "docs.save",
+            %{file: file}
+          )
+
+        "doc#{saved_doc["owner_id"]}_#{saved_doc["id"]}"
+    end
+  end
+
+  @anon_regex ~r/^(anon)|(анон)/i
+  def make_vk_post(post) do
+    group_id = Application.get_env(:dev_random_ex, :group_id)
+
+    text = if post.text, do: post.text, else: ""
+
+    is_anon = Regex.match?(@anon_regex, text)
+    text = Regex.replace(@anon_regex, text, "")
+
+    case Enum.at(post.attachments, 0) do
+      %PostAttachment{suggested_post_id: post_id} when post_id != nil ->
+        vk_req(
+          "wall.post",
+          %{
+            owner_id: -group_id,
+            post_id: post_id,
+            message: text,
+            signed: if(is_anon, do: 0, else: 1)
+          }
+        )
+
+      _ ->
+        vk_attachment_strings =
+          Enum.map(post.attachments, &DevRandom.Platforms.Attachment.vk_file_string/1)
+
+        vk_req(
+          "wall.post",
+          %{
+            owner_id: -group_id,
+            message: text,
+            signed: 0,
+            attachments: Enum.join(vk_attachment_strings, ","),
+            copyright:
+              case post.source_link do
+                {:telegram, _, _} -> nil
+                link -> link
+              end
+          }
+        )
+    end
   end
 end

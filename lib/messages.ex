@@ -72,17 +72,15 @@ defmodule DevRandom.Messages do
                 do: String.match?(message["caption"], anon_regex),
                 else: false
 
-            from_str =
-              if not is_anon do
-                "from [#{fname}](tg://user?id=#{user_id})\n"
-              else
-                ""
-              end
+            source_link =
+              if not is_anon,
+                do: {:telegram, fname, user_id},
+                else: nil
 
             caption =
               if(message["caption"],
-                do: from_str <> String.replace(message["caption"], anon_regex, ""),
-                else: from_str
+                do: String.replace(message["caption"], anon_regex, ""),
+                else: ""
               )
               |> String.trim()
 
@@ -110,7 +108,8 @@ defmodule DevRandom.Messages do
             if !used_recently_msg do
               post = %Post{
                 attachments: [attachment],
-                text: caption
+                text: caption,
+                source_link: source_link
               }
 
               # Use a combination of user and message id to help lookup and keep it unique
