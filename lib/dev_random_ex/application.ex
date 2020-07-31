@@ -1,5 +1,5 @@
 defmodule DevRandom.Scheduler do
-  use Quantum.Scheduler, otp_app: :dev_random_ex
+  use Quantum, otp_app: :dev_random_ex
 end
 
 defmodule DevRandom.Application do

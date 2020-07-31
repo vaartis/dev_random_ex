@@ -24,14 +24,15 @@ defmodule DevRandom.MixProject do
     [
       {:httpoison, "~> 1.0"},
       {:poison, "~> 3.1"},
-      {:quantum, "~> 2.2"},
+      {:quantum, "~> 3.0"},
       {:timex, "~> 3.0"},
       {:distillery, "~> 2.0", runtime: false},
       {:pid_file, "~> 0.1.0"},
       {:jason, "~> 1.1"},
       {:sweet_xml, "~> 0.3"},
       {:swoosh, "~> 1.0"},
-      {:gen_smtp, "~> 0.13"}
+      {:gen_smtp, "~> 0.13"},
+      {:external_service, "~> 1.0"}
     ]
   end
 end
