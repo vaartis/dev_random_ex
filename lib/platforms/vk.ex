@@ -234,14 +234,21 @@ defmodule DevRandom.Platforms.VK do
   defp vk_req(method_name, params) do
     token = Application.get_env(:dev_random_ex, :token)
 
-    __MODULE__.RequestTimeAgent.before_request()
-
     query_result =
-      HTTPoison.get!(
-        "https://api.vk.com/method/#{method_name}",
-        [],
-        params: Map.merge(params, %{access_token: token, v: "5.73"}),
-        timeout: 60_000
+      ExternalService.call!(
+        __MODULE__.Fuse,
+        %ExternalService.RetryOptions{
+          backoff: {:exponential, 5_000},
+          rescue_only: [HTTPoison.Error]
+        },
+        fn ->
+          HTTPoison.get!(
+            "https://api.vk.com/method/#{method_name}",
+            [],
+            params: Map.merge(params, %{access_token: token, v: "5.73"}),
+            timeout: 60_000
+          )
+        end
       )
 
     if query_result.status_code == 403 do

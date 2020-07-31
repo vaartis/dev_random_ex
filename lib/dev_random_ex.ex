@@ -19,9 +19,11 @@ defmodule DevRandom do
   @spec init(args :: map) :: {atom, map}
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
     msgs_child = [
-      {DevRandom.Platforms.VK.RequestTimeAgent, []},
       {DevRandom.Messages, []}
     ]
+
+    DevRandom.Platforms.VK.Fuse.start()
+    DevRandom.Platforms.OldDanbooru.Fuse.start()
 
     Supervisor.start_link(msgs_child, strategy: :one_for_one, name: DevRandom.UtilsSupervisor)
 
@@ -137,7 +139,11 @@ defmodule DevRandom do
       end
     end
 
-    {:ok, _} = DevRandom.Platforms.VK.make_vk_post(post)
+    case DevRandom.Platforms.VK.make_vk_post(post) do
+      {:ok, _} -> nil
+      # VK error for "too many posts per day", just ignore it
+      {:error, %{"error_code" => 214}} -> nil
+    end
 
     source.cleanup(post)
 

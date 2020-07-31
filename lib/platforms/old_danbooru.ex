@@ -18,24 +18,35 @@ defmodule DevRandom.Platforms.OldDanbooru do
   def post(base_url) do
     import SweetXml
 
-    {total_images, ""} =
-      HTTPoison.get!("#{base_url}/index.php?page=dapi&s=post&q=index&limit=1", [], timeout: 60_000).body
-      |> xpath(~x"//posts/@count"l)
-      |> List.first()
-      |> to_string
-      |> Integer.parse()
-
-    pages = Integer.floor_div(total_images, 100)
-    random_page = Enum.random(1..pages)
-
     random_image =
-      HTTPoison.get!(
-        "#{base_url}/index.php?page=dapi&s=post&q=index&limit=100&json=1&pid=#{random_page}",
-        [],
-        timeout: 60_000
-      ).body
-      |> Poison.decode!()
-      |> Enum.random()
+      ExternalService.call!(
+        __MODULE__.Fuse,
+        %ExternalService.RetryOptions{
+          backoff: {:exponential, 5_000},
+          rescue_only: [HTTPoison.Error]
+        },
+        fn ->
+          {total_images, ""} =
+            HTTPoison.get!("#{base_url}/index.php?page=dapi&s=post&q=index&limit=1", [],
+              timeout: 60_000
+            ).body
+            |> xpath(~x"//posts/@count"l)
+            |> List.first()
+            |> to_string
+            |> Integer.parse()
+
+          pages = Integer.floor_div(total_images, 100)
+          random_page = Enum.random(1..pages)
+
+          HTTPoison.get!(
+            "#{base_url}/index.php?page=dapi&s=post&q=index&limit=100&json=1&pid=#{random_page}",
+            [],
+            timeout: 60_000
+          ).body
+          |> Poison.decode!()
+          |> Enum.random()
+        end
+      )
 
     type =
       cond do
