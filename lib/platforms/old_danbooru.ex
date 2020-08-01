@@ -1,12 +1,12 @@
 defmodule DevRandom.Platforms.OldDanbooru.PostAttachment do
-  @enforce_keys [:url, :type]
+  @enforce_keys [:url, :type, :phash]
 
-  defstruct [:url, :type, :md5]
+  defstruct [:url, :type, :phash]
 end
 
 defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.OldDanbooru.PostAttachment do
   def type(data), do: data.type
-  def md5(data), do: data.md5
+  def phash(data), do: data.phash
   def tg_file_string(data), do: data.url
   def vk_file_string(data), do: DevRandom.Platforms.VK.upload_photo_to_wall(data.type, data.url)
 end
@@ -62,12 +62,14 @@ defmodule DevRandom.Platforms.OldDanbooru do
 
     url = "#{base_url}/images/#{random_image["directory"]}/#{random_image["image"]}"
 
+    {:ok, phash} = HTTPoison.get!(url).body |> PHash.image_binary_hash()
+
     %Post{
       attachments: [
         %PostAttachment{
           type: type,
           url: url,
-          md5: random_image["hash"] |> String.upcase()
+          phash: phash
         }
       ],
       source_link: "#{base_url}/index.php?page=post&s=view&id=#{random_image["id"]}"

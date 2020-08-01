@@ -4,7 +4,7 @@ defmodule DevRandom.MixProject do
   def project do
     [
       app: :dev_random_ex,
-      version: "0.3.1",
+      version: "0.4.0",
       elixir: "~> 1.6",
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -32,7 +32,8 @@ defmodule DevRandom.MixProject do
       {:sweet_xml, "~> 0.3"},
       {:swoosh, "~> 1.0"},
       {:gen_smtp, "~> 0.13"},
-      {:external_service, "~> 1.0"}
+      {:external_service, "~> 1.0"},
+      {:phash, "~> 0.1"}
     ]
   end
 end

@@ -167,7 +167,7 @@ defmodule DevRandom do
   def maybe_use_attachments(attachments) do
     attachment_hashes =
       attachments
-      |> Enum.map(fn a -> Attachment.md5(a) end)
+      |> Enum.map(fn a -> Attachment.phash(a) end)
 
     if Enum.all?(attachment_hashes, &image_used_recently?/1) do
       false
@@ -178,16 +178,33 @@ defmodule DevRandom do
     end
   end
 
+  def image_recent_lookup(image_hash) do
+    exact_match = :dets.lookup(RecentImages, image_hash)
+
+    if Enum.empty?(exact_match) do
+      :dets.traverse(
+        RecentImages,
+        fn {hash, _} = value ->
+          if PHash.image_hash_distance(hash, image_hash) < 5,
+            do: [value],
+            else: :continue
+        end
+      )
+    else
+      exact_match
+    end
+  end
+
   @doc """
   Checks if the image was used recently
   """
   def image_used_recently?(image_hash) do
     use Timex
 
-    lookup_result = :dets.lookup(RecentImages, image_hash)
+    lookup_result = image_recent_lookup(image_hash)
 
     if Enum.empty?(lookup_result) do
-      # The image was not used at all
+      # The image was not used
       false
     else
       [{^image_hash, %{last_used: date, next_use_allowed_in: next_use_allowed_in}}] =

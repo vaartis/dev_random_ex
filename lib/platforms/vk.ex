@@ -11,8 +11,12 @@ end
 defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachment do
   def type(data), do: data.type
 
-  def md5(data),
-    do: :crypto.hash(:md5, HTTPoison.get!(data.hashing_url, [], timeout: 60_000).body)
+  def phash(data) do
+    {:ok, hash} =
+      HTTPoison.get!(data.hashing_url, [], timeout: 60_000).body |> PHash.image_binary_hash()
+
+    hash
+  end
 
   def tg_file_string(data), do: data.url
 

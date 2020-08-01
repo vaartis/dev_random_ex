@@ -91,16 +91,23 @@ defmodule DevRandom.Messages do
 
             used_recently_msg =
               (
-                hash = Attachment.md5(attachment)
+                hash = Attachment.phash(attachment)
 
-                if DevRandom.image_used_recently?(hash) do
-                  [{^hash, %{last_used: last_used, next_use_allowed_in: next_use_allowed_in}}] =
-                    :dets.lookup(RecentImages, hash)
+                lookup_result = DevRandom.image_recent_lookup(hash)
 
-                  next_allowed_date = Date.add(last_used, next_use_allowed_in)
+                if not Enum.empty?(lookup_result) do
+                  [{_, %{last_used: last_used, next_use_allowed_in: next_use_allowed_in}}] =
+                    lookup_result
 
-                  "The image was already posted recently.\
- Last post date: #{last_used}, next allowed post date: #{next_allowed_date}"
+                  if Timex.today() in Timex.Interval.new(
+                       from: last_used,
+                       until: [days: next_use_allowed_in]
+                     ) do
+                    next_allowed_date = Date.add(last_used, next_use_allowed_in)
+
+                    "The image was already posted recently.\n" <>
+                      "Last post date: #{last_used}, next allowed post date: #{next_allowed_date}"
+                  end
                 end
               )
 

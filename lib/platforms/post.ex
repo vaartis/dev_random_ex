@@ -1,7 +1,7 @@
 defprotocol DevRandom.Platforms.Attachment do
   def type(data)
 
-  def md5(data)
+  def phash(data)
 
   @doc "A string that contains data to upload the attachment (a URL or a file_id)"
   def tg_file_string(data)
