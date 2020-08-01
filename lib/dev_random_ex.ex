@@ -106,12 +106,13 @@ defmodule DevRandom do
           # Send the request to the selected endpoint with a parmeter
           # named parameterName, as all these endpoints have different
           # parameter names
-          tg_req(endpointName, %{
-            :chat_id => tg_group_id,
-            parameterName => url,
-            :caption => text,
-            :parse_mode => "Markdown"
-          })
+          %{"ok" => true} =
+            tg_req(endpointName, %{
+              :chat_id => tg_group_id,
+              parameterName => url,
+              :caption => text,
+              :parse_mode => "Markdown"
+            })
 
         atts ->
           text_msg_id =
@@ -129,11 +130,12 @@ defmodule DevRandom do
           Enum.each(
             atts,
             fn {endpointName, parameterName, url} ->
-              tg_req(endpointName, %{
-                :chat_id => tg_group_id,
-                parameterName => url,
-                :reply_to_message_id => text_msg_id
-              })
+              %{"ok" => true} =
+                tg_req(endpointName, %{
+                  :chat_id => tg_group_id,
+                  parameterName => url,
+                  :reply_to_message_id => text_msg_id
+                })
             end
           )
       end
