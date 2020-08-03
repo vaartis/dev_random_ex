@@ -62,7 +62,7 @@ defmodule DevRandom.Platforms.OldDanbooru do
 
     url = "#{base_url}/images/#{random_image["directory"]}/#{random_image["image"]}"
 
-    {:ok, phash} = HTTPoison.get!(url).body |> PHash.image_binary_hash()
+    phash = HTTPoison.get!(url).body |> PHash.image_binary_hash!()
 
     %Post{
       attachments: [

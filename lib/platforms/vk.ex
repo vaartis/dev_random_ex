@@ -12,10 +12,9 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachme
   def type(data), do: data.type
 
   def phash(data) do
-    {:ok, hash} =
-      HTTPoison.get!(data.hashing_url, [], timeout: 60_000).body |> PHash.image_binary_hash()
-
-    hash
+    # Apparently VK responds with a redirect sometimes
+    HTTPoison.get!(data.hashing_url, [], timeout: 60_000, follow_redirect: true).body
+    |> PHash.image_binary_hash!()
   end
 
   def tg_file_string(data), do: data.url
