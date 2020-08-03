@@ -77,8 +77,8 @@ defmodule DevRandom.Platforms.VK do
            filtered_atts <-
              suggested_post["attachments"]
              |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
-             # Discard audio/video
-             |> Enum.reject(fn att -> att["doc"]["type"] in [5, 6] end),
+             # Discard everything except gifs and pictures
+             |> Enum.filter(fn att -> att["doc"]["type"] in [3, 4] end),
            # Any attachments left?
            true <- Enum.count(filtered_atts) > 0 do
         attachments =
@@ -119,10 +119,6 @@ defmodule DevRandom.Platforms.VK do
                     # Image
                     4 ->
                       :photo
-
-                    # Other
-                    _ ->
-                      :other
                   end
 
                 %PostAttachment{
