@@ -183,13 +183,16 @@ defmodule DevRandom do
   def image_recent_lookup(image_hash) do
     exact_match = :dets.lookup(RecentImages, image_hash)
 
-    if Enum.empty?(exact_match) do
+    if Enum.empty?(exact_match) and match?({:phash, _}, image_hash) do
       :dets.traverse(
         RecentImages,
         fn {hash, _} = value ->
-          if PHash.image_hash_distance(hash, image_hash) < 5,
-            do: [value],
-            else: :continue
+          with {:phash, hash} <- hash,
+               true <- PHash.image_hash_distance(hash, image_hash) < 5 do
+            [value]
+          else
+            _ -> :continue
+          end
         end
       )
     else
@@ -209,8 +212,7 @@ defmodule DevRandom do
       # The image was not used
       false
     else
-      [{^image_hash, %{last_used: date, next_use_allowed_in: next_use_allowed_in}}] =
-        lookup_result
+      [{_, %{last_used: date, next_use_allowed_in: next_use_allowed_in}}] = lookup_result
 
       # Image was posted withing the next allowed use interval
       Timex.today() in Timex.Interval.new(from: date, until: [days: next_use_allowed_in])
@@ -231,7 +233,7 @@ defmodule DevRandom do
       )
     else
       # Get the last use
-      {^image_hash, %{next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
+      {_, %{next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
 
       # Make the next allowed use time twice as long
       :dets.insert(

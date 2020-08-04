@@ -23,6 +23,28 @@ defmodule DevRandom.Application do
 
     # Init DETS
     {:ok, _} = :dets.open_file(RecentImages, file: 'RecentImages.dets')
+
+    # Migration from simple number hashes to tuple of type and hash
+    # to_migrate =
+    #   :dets.select(
+    #     RecentImages,
+    #     [{{:"$1", :"$2"}, [{:is_integer, :"$1"}], [:"$_"]}]
+    #   )
+    #
+    # :dets.insert(
+    #   RecentImages,
+    #   Enum.map(to_migrate, fn {hash, data} ->
+    #     {{:phash, hash}, data}
+    #   end)
+    # )
+    #
+    # Enum.each(
+    #   to_migrate,
+    #   fn {hash, _} ->
+    #     :dets.delete(RecentImages, hash)
+    #   end
+    # )
+
     {:ok, _} = :dets.open_file(BotReceivedImages, file: 'BotReceivedImages.dets')
 
     # Restart every minute for an hour if something goes wrong (e.g. VK starts timing out)
@@ -38,5 +60,6 @@ defmodule DevRandom.Application do
   def stop(_state) do
     # Close DETS file
     :dets.close(RecentImages)
+    :dets.close(BotReceivedImages)
   end
 end

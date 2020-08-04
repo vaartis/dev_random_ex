@@ -12,9 +12,12 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachme
   def type(data), do: data.type
 
   def phash(data) do
-    # Apparently VK responds with a redirect sometimes
-    HTTPoison.get!(data.hashing_url, [], timeout: 60_000, follow_redirect: true).body
-    |> PHash.image_binary_hash!()
+    {
+      :phash,
+      # Apparently VK responds with a redirect sometimes
+      HTTPoison.get!(data.hashing_url, [], timeout: 60_000, follow_redirect: true).body
+      |> PHash.image_binary_hash!()
+    }
   end
 
   def tg_file_string(data), do: data.url
@@ -337,14 +340,10 @@ defmodule DevRandom.Platforms.VK do
     {method, field} =
       case type do
         :photo -> {"photos.getWallUploadServer", "photo"}
-        _ -> {"docs.getWallUploadServer", "file"}
+        _ -> {"docs.getUploadServer", "file"}
       end
 
-    {:ok, %{"upload_url" => upload_url}} =
-      vk_req(
-        method,
-        %{group_id: group_id}
-      )
+    {:ok, %{"upload_url" => upload_url}} = vk_req(method)
 
     filename = Path.basename(url)
 

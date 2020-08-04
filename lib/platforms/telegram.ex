@@ -17,7 +17,14 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.Telegram.PostAt
     "https://api.telegram.org/file/bot#{tg_token}/#{file_path}"
   end
 
-  def phash(data), do: HTTPoison.get!(photo_url(data)).body |> PHash.image_binary_hash!()
+  def phash(data) do
+    file_data = HTTPoison.get!(photo_url(data)).body
+
+    case data.type do
+      :photo -> {:phash, file_data |> PHash.image_binary_hash!()}
+      _ -> {:md5, :crypto.hash(:md5, file_data)}
+    end
+  end
 
   def tg_file_string(data), do: data.file_id
 
