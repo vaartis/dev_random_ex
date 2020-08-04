@@ -33,7 +33,9 @@ defmodule DevRandom.MixProject do
       {:swoosh, "~> 1.0"},
       {:gen_smtp, "~> 0.13"},
       {:external_service, "~> 1.0"},
-      {:phash, "~> 0.1"}
+      {:phash, "~> 0.1"},
+      {:ffmpex, "~> 0.7"},
+      {:temp, "~> 0.4"}
     ]
   end
 end

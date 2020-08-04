@@ -333,7 +333,49 @@ defmodule DevRandom.Platforms.VK do
   end
 
   def upload_photo_to_wall(type, url) do
-    data = HTTPoison.get!(url).body
+    data =
+      (
+        downloaded = HTTPoison.get!(url).body
+
+        case type do
+          :photo ->
+            downloaded
+
+          :animation ->
+            import FFmpex
+            use FFmpex.Options
+
+            filename = Path.basename(url)
+
+            Temp.track!()
+            path = Temp.open!([suffix: filename], &IO.binwrite(&1, downloaded))
+            extname = Path.extname(path)
+            gif_path = String.replace_suffix(path, extname, ".gif")
+
+            palette_path = Temp.path!(suffix: ".png")
+
+            :ok =
+              FFmpex.new_command()
+              |> add_input_file(path)
+              |> add_output_file(palette_path)
+              |> add_file_option(option_filter("palettegen"))
+              |> execute()
+
+            :ok =
+              FFmpex.new_command()
+              |> add_input_file(path)
+              |> add_input_file(palette_path)
+              |> add_output_file(gif_path)
+              |> add_global_option(option_filter_complex("paletteuse"))
+              |> execute()
+
+            result = File.read!(gif_path)
+
+            Temp.cleanup()
+
+            result
+        end
+      )
 
     group_id = Application.get_env(:dev_random_ex, :group_id)
 
