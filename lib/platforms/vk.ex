@@ -350,6 +350,8 @@ defmodule DevRandom.Platforms.VK do
 end
 
 defmodule DevRandom.Platforms.VK.Suggested do
+  require Logger
+
   alias DevRandom.Platforms.Post
   alias DevRandom.Platforms.VK.PostAttachment
 
@@ -364,108 +366,119 @@ defmodule DevRandom.Platforms.VK.Suggested do
   def post do
     group_id = Application.get_env(:dev_random_ex, :group_id)
 
-    # Check the suggested posts
-    {:ok, suggested_posts_query} =
-      vk_req(
-        "wall.get",
-        %{
-          owner_id: -group_id,
-          filter: "suggests"
-        }
-      )
+    {:ok, [%{"can_post" => can_post}]} =
+      vk_req("groups.getById", %{group_id: "realrandomitt", fields: "can_post"})
 
-    post_count = suggested_posts_query["count"]
-
-    # There are suggested posts
-    if post_count > 0 do
-      suggested_post =
-        random_from(%{
-          method_name: "wall.get",
-          all_count: post_count,
-          per_page_count: 100,
-          request_args: %{
+    if can_post == 1 do
+      # Check the suggested posts
+      {:ok, suggested_posts_query} =
+        vk_req(
+          "wall.get",
+          %{
             owner_id: -group_id,
             filter: "suggests"
-          },
-          first_page: suggested_posts_query["items"]
-        })
+          }
+        )
 
-      # Select the random post
-      suggested_post_id = suggested_post["id"]
+      post_count = suggested_posts_query["count"]
 
-      with true <- Map.has_key?(suggested_post, "attachments"),
-           # Filter the attachments
-           filtered_atts <-
-             suggested_post["attachments"]
-             |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
-             # Discard everything except gifs and pictures
-             |> Enum.filter(fn att -> att["photo"] || att["doc"]["type"] in [3, 4] end),
-           # Any attachments left?
-           true <- Enum.count(filtered_atts) > 0 do
-        attachments =
-          Enum.map(
-            filtered_atts,
-            fn
-              %{"photo" => photo, "type" => "photo"} ->
-                biggest =
-                  Enum.find_value(
-                    [
-                      "photo_2560",
-                      "photo_1280",
-                      "photo_807",
-                      "photo_604",
-                      "photo_130",
-                      "photo_75"
-                    ],
-                    fn size -> photo[size] end
-                  )
+      # There are suggested posts
+      if post_count > 0 do
+        suggested_post =
+          random_from(%{
+            method_name: "wall.get",
+            all_count: post_count,
+            per_page_count: 100,
+            request_args: %{
+              owner_id: -group_id,
+              filter: "suggests"
+            },
+            first_page: suggested_posts_query["items"]
+          })
 
-                %PostAttachment{
-                  type: :photo,
-                  # URL for the image
-                  url: biggest,
-                  # URL for the smallest image to hash it
-                  hashing_url: photo["photo_75"],
-                  # VK name for the photo
-                  vk_string: "photo#{photo["owner_id"]}_#{photo["id"]}",
-                  suggested_post_id: suggested_post_id
-                }
+        # Select the random post
+        suggested_post_id = suggested_post["id"]
 
-              %{"doc" => doc, "type" => "doc"} ->
-                type =
-                  case doc["type"] do
-                    # GIF
-                    3 ->
-                      :animation
+        with true <- Map.has_key?(suggested_post, "attachments"),
+             # Filter the attachments
+             filtered_atts <-
+               suggested_post["attachments"]
+               |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
+               # Discard everything except gifs and pictures
+               |> Enum.filter(fn att -> att["photo"] || att["doc"]["type"] in [3, 4] end),
+             # Any attachments left?
+             true <- Enum.count(filtered_atts) > 0 do
+          attachments =
+            Enum.map(
+              filtered_atts,
+              fn
+                %{"photo" => photo, "type" => "photo"} ->
+                  biggest =
+                    Enum.find_value(
+                      [
+                        "photo_2560",
+                        "photo_1280",
+                        "photo_807",
+                        "photo_604",
+                        "photo_130",
+                        "photo_75"
+                      ],
+                      fn size -> photo[size] end
+                    )
 
-                    # Image
-                    4 ->
-                      :photo
-                  end
+                  %PostAttachment{
+                    type: :photo,
+                    # URL for the image
+                    url: biggest,
+                    # URL for the smallest image to hash it
+                    hashing_url: photo["photo_75"],
+                    # VK name for the photo
+                    vk_string: "photo#{photo["owner_id"]}_#{photo["id"]}",
+                    suggested_post_id: suggested_post_id
+                  }
 
-                %PostAttachment{
-                  type: type,
-                  url: doc["url"],
-                  hashing_url: doc["url"],
-                  vk_string: "doc#{doc["owner_id"]}_#{doc["id"]}",
-                  # Just store it in attachments since posts are uniform
-                  suggested_post_id: suggested_post_id
-                }
-            end
-          )
+                %{"doc" => doc, "type" => "doc"} ->
+                  type =
+                    case doc["type"] do
+                      # GIF
+                      3 ->
+                        :animation
 
-        %Post{
-          attachments: attachments,
-          text: if(suggested_post["text"] != "", do: suggested_post["text"], else: nil)
-        }
-      else
-        _ ->
-          # Delete the post
-          delete_suggested_post(suggested_post_id)
+                      # Image
+                      4 ->
+                        :photo
+                    end
 
-          # Select another post
-          post()
+                  %PostAttachment{
+                    type: type,
+                    url: doc["url"],
+                    hashing_url: doc["url"],
+                    vk_string: "doc#{doc["owner_id"]}_#{doc["id"]}",
+                    # Just store it in attachments since posts are uniform
+                    suggested_post_id: suggested_post_id
+                  }
+              end
+            )
+
+          %Post{
+            attachments: attachments,
+            text: if(suggested_post["text"] != "", do: suggested_post["text"], else: nil)
+          }
+        else
+          _ ->
+            # Delete the post
+            delete_suggested_post(suggested_post_id)
+
+            # Select another post
+            post()
+        end
       end
+    else
+      Logger.info(
+        "Can't post to VK wall, probably reached post limit. Will not try using suggested posts."
+      )
+
+      nil
     end
   end
 

@@ -148,7 +148,7 @@ defmodule DevRandom do
 
       # VK error for "too many posts per day"
       {:error, %{"error_code" => 214}} ->
-        Logger.info("VK post limit reached, cannot post there")
+        Logger.info("VK post limit reached, will not post there.")
     end
 
     source.cleanup(post)
