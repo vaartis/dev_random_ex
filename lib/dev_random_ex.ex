@@ -188,6 +188,7 @@ defmodule DevRandom do
         RecentImages,
         fn {hash, _} = value ->
           with {:phash, hash} <- hash,
+               {:phash, image_hash} <- image_hash,
                true <- PHash.image_hash_distance(hash, image_hash) < 5 do
             [value]
           else
