@@ -41,6 +41,7 @@ defmodule DevRandom do
     # Post from telegram if there's any, and shuffle other possible sources
     sources =
       [
+        DevRandom.Platforms.VK.Suggested,
         DevRandom.Platforms.Telegram
       ] ++
         Enum.shuffle([
