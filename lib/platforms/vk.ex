@@ -346,34 +346,39 @@ defmodule DevRandom.Platforms.VK do
             use FFmpex.Options
 
             filename = Path.basename(url)
+            extname = Path.extname(filename)
 
-            Temp.track!()
-            path = Temp.open!([suffix: filename], &IO.binwrite(&1, downloaded))
-            extname = Path.extname(path)
-            gif_path = String.replace_suffix(path, extname, ".gif")
+            if extname == ".gif" do
+              downloaded
+            else
+              Temp.track!()
+              path = Temp.open!([suffix: filename], &IO.binwrite(&1, downloaded))
 
-            palette_path = Temp.path!(suffix: ".png")
+              gif_path = String.replace_suffix(path, extname, ".gif")
 
-            :ok =
-              FFmpex.new_command()
-              |> add_input_file(path)
-              |> add_output_file(palette_path)
-              |> add_file_option(option_filter("palettegen"))
-              |> execute()
+              palette_path = Temp.path!(suffix: ".png")
 
-            :ok =
-              FFmpex.new_command()
-              |> add_input_file(path)
-              |> add_input_file(palette_path)
-              |> add_output_file(gif_path)
-              |> add_global_option(option_filter_complex("paletteuse"))
-              |> execute()
+              :ok =
+                FFmpex.new_command()
+                |> add_input_file(path)
+                |> add_output_file(palette_path)
+                |> add_file_option(option_filter("palettegen"))
+                |> execute()
 
-            result = File.read!(gif_path)
+              :ok =
+                FFmpex.new_command()
+                |> add_input_file(path)
+                |> add_input_file(palette_path)
+                |> add_output_file(gif_path)
+                |> add_global_option(option_filter_complex("paletteuse"))
+                |> execute()
 
-            Temp.cleanup()
+              result = File.read!(gif_path)
 
-            result
+              Temp.cleanup()
+
+              result
+            end
         end
       )
 
