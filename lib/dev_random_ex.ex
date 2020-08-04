@@ -143,9 +143,12 @@ defmodule DevRandom do
     end
 
     case DevRandom.Platforms.VK.make_vk_post(post) do
-      {:ok, _} -> nil
-      # VK error for "too many posts per day", just ignore it
-      {:error, %{"error_code" => 214}} -> nil
+      {:ok, _} ->
+        nil
+
+      # VK error for "too many posts per day"
+      {:error, %{"error_code" => 214}} ->
+        Logger.info("VK post limit reached, cannot post there")
     end
 
     source.cleanup(post)

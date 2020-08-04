@@ -399,7 +399,7 @@ defmodule DevRandom.Platforms.VK.Suggested do
              suggested_post["attachments"]
              |> Enum.filter(fn att -> att["type"] in ["photo", "doc"] end)
              # Discard everything except gifs and pictures
-             |> Enum.filter(fn att -> att["doc"]["type"] in [3, 4] end),
+             |> Enum.filter(fn att -> att["photo"] || att["doc"]["type"] in [3, 4] end),
            # Any attachments left?
            true <- Enum.count(filtered_atts) > 0 do
         attachments =
