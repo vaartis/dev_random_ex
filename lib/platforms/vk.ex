@@ -230,7 +230,7 @@ defmodule DevRandom.Platforms.VK do
   # then the error will be reported as `{:error, :invalid_method}`
   @spec vk_req(method_name :: String.t(), params :: map) ::
           vk_result_t
-  defp vk_req(method_name, params) do
+  defp vk_req(method_name, params \\ %{}) do
     token = Application.get_env(:dev_random_ex, :token)
 
     query_result =
@@ -244,7 +244,7 @@ defmodule DevRandom.Platforms.VK do
           HTTPoison.get!(
             "https://api.vk.com/method/#{method_name}",
             [],
-            params: Map.merge(params, %{access_token: token, v: "5.73"}),
+            params: Map.merge(%{access_token: token, v: "5.73"}, params),
             timeout: 60_000
           )
         end
