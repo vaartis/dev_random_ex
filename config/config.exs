@@ -8,6 +8,7 @@ config :dev_random_ex,
   token: "",
   group_id: 112376753,
   tg_token: "",
+  vk_max_search_tries: 100,
   tg_group_id: "@realrandomitt"
   # TODO: implement logs properly
   # log_file: "dev_random.log"

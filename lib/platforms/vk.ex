@@ -39,7 +39,7 @@ defmodule DevRandom.Platforms.VK do
   end
 
   @impl true
-  def post do
+  def post(tries \\ 0) do
     # Just in case
     Process.sleep(1000)
 
@@ -144,8 +144,10 @@ defmodule DevRandom.Platforms.VK do
           # Delete the post
           delete_suggested_post(suggested_post_id)
 
-          # Select another post
-          post()
+          # Select another post if the try limit isn't exhausted
+          if tries < Application.get_env(:dev_random_ex, :vk_max_search_tries) do
+            post(tries + 1)
+          end
       end
     else
       {:ok, members_query} =
@@ -215,8 +217,11 @@ defmodule DevRandom.Platforms.VK do
           source_link: "https://vk.com/photo#{random_saved["owner_id"]}_#{random_saved["id"]}"
         }
       else
-        # Try searching for posts again if anything fails
-        _ -> post()
+        _ ->
+          # Try searching for posts again if anything fails, and just exit if try limit is exhausted
+          if tries < Application.get_env(:dev_random_ex, :vk_max_search_tries) do
+            post(tries + 1)
+          end
       end
     end
   end
