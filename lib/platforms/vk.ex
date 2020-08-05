@@ -366,10 +366,23 @@ defmodule DevRandom.Platforms.VK.Suggested do
   def post do
     group_id = Application.get_env(:dev_random_ex, :group_id)
 
-    {:ok, [%{"can_post" => can_post}]} =
-      vk_req("groups.getById", %{group_id: "realrandomitt", fields: "can_post"})
+    can_post =
+      (
+        {:ok, %{"items" => posts}} =
+          DevRandom.Platforms.VK.vk_req("wall.get", %{owner_id: -112_376_753, count: 50})
 
-    if can_post == 1 do
+        today = Timex.today()
+
+        times =
+          Enum.map(posts, &Timex.from_unix(&1["date"]))
+          |> Enum.map(&DateTime.to_date/1)
+          |> Enum.filter(fn date -> date == today end)
+
+        # If there are less than 50 posts today, new can be made
+        Enum.count(times) < 50
+      )
+
+    if can_post do
       # Check the suggested posts
       {:ok, suggested_posts_query} =
         vk_req(
