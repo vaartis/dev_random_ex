@@ -323,7 +323,8 @@ defmodule DevRandom.Platforms.VK do
             owner_id: -group_id,
             post_id: post_id,
             message: text,
-            signed: if(is_anon, do: 0, else: 1)
+            signed: if(is_anon, do: 0, else: 1),
+            copyright: post.source_link
           }
         )
 
@@ -475,7 +476,8 @@ defmodule DevRandom.Platforms.VK.Suggested do
 
           %Post{
             attachments: attachments,
-            text: if(suggested_post["text"] != "", do: suggested_post["text"], else: nil)
+            text: if(suggested_post["text"] != "", do: suggested_post["text"], else: nil),
+            source_link: suggested_post["copyright"]["link"]
           }
         else
           _ ->
