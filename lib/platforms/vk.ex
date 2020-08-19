@@ -271,7 +271,12 @@ defmodule DevRandom.Platforms.VK do
 
     {:ok, %{"upload_url" => upload_url}} = vk_req(method, params)
 
-    filename = Path.basename(url)
+    filename =
+      cond do
+        # If there's no extension, assume it's jpg since it probably comes from telegram
+        type == :photo and Path.extname(url) == "" -> Path.basename(url) <> ".jpg"
+        true -> Path.basename(url)
+      end
 
     upload_result =
       HTTPoison.post!(
