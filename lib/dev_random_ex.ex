@@ -81,26 +81,29 @@ defmodule DevRandom do
       anon_regex = ~r/^(anon)|(анон)/i
       is_anon = Regex.match?(anon_regex, post.text || "")
 
-      text =
-        cond do
-          post.source_link ->
-            case post.source_link do
-              {:telegram, fname, user_id} when not is_anon ->
-                "from [#{fname}](tg://user?id=#{user_id})\n"
+      source_text =
+        case post.source_link do
+          {:telegram, fname, user_id} when not is_anon ->
+            "from [#{fname}](tg://user?id=#{user_id})\n"
 
-              {:telegram, _, _} when is_anon ->
-                ""
-
-              link ->
-                "[Source](#{link})"
-            end
-
-          post.text ->
-            Regex.replace(anon_regex, post.text, "")
-
-          true ->
+          {:telegram, _, _} when is_anon ->
             ""
+
+          nil ->
+            ""
+
+          link ->
+            "[Source](#{link})"
         end
+
+      post_text =
+        if post.text do
+          Regex.replace(anon_regex, post.text, "")
+        else
+          ""
+        end
+
+      text = "#{post_text}\n\n#{source_text}"
 
       case tfed_attachments do
         [{endpointName, parameterName, url}] ->
