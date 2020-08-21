@@ -141,7 +141,7 @@ defmodule DevRandom.Platforms.VK do
           HTTPoison.get!(
             "https://api.vk.com/method/#{method_name}",
             [],
-            params: Map.merge(%{access_token: token, v: "5.73"}, params),
+            params: Map.merge(%{access_token: token, v: "5.122"}, params),
             timeout: 60_000
           )
         end
