@@ -360,7 +360,7 @@ defmodule DevRandom.Platforms.VK.Suggested do
 
   @behaviour DevRandom.Platforms.PostSource
 
-  import DevRandom.Platforms.VK, only: [vk_req: 1, vk_req: 2, random_from: 1]
+  import DevRandom.Platforms.VK, only: [vk_req: 2, random_from: 1]
 
   @impl true
   def cleanup(_data), do: nil
