@@ -298,13 +298,13 @@ defmodule DevRandom.Platforms.VK do
       _ ->
         %{"file" => file} = upload_result
 
-        {:ok, [saved_doc]} =
+        {:ok, %{"doc" => %{"owner_id" => owner_id, "id" => id}}} =
           vk_req(
             "docs.save",
             %{file: file}
           )
 
-        "doc#{saved_doc["owner_id"]}_#{saved_doc["id"]}"
+        "doc#{owner_id}_#{id}"
     end
   end
 
