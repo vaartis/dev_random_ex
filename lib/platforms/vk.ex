@@ -89,18 +89,15 @@ defmodule DevRandom.Platforms.VK do
           first_page: saved_photos_query["items"]
         })
 
-      biggest =
-        Enum.find_value(
-          ["photo_2560", "photo_1280", "photo_807", "photo_604", "photo_130", "photo_75"],
-          fn size -> random_saved[size] end
-        )
+      smallest = List.first(random_saved["sizes"])["url"]
+      biggest = List.last(random_saved["sizes"])["url"]
 
       %Post{
         attachments: [
           %PostAttachment{
             type: :photo,
             url: biggest,
-            hashing_url: random_saved["photo_75"],
+            hashing_url: smallest,
             vk_string: "photo#{random_saved["owner_id"]}_#{random_saved["id"]}"
           }
         ],
