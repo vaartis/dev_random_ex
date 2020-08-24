@@ -429,33 +429,31 @@ defmodule DevRandom.Platforms.VK.Suggested do
               filtered_atts,
               fn
                 %{"photo" => photo, "type" => "photo"} ->
-                  biggest =
-                    Enum.find_value(
-                      [
-                        "photo_2560",
-                        "photo_1280",
-                        "photo_807",
-                        "photo_604",
-                        "photo_130",
-                        "photo_75"
-                      ],
-                      fn size -> photo[size] end
-                    )
+                  smallest = List.first(photo["sizes"])["url"]
+                  biggest = List.last(photo["sizes"])["url"]
 
                   %PostAttachment{
                     type: :photo,
                     # URL for the image
                     url: biggest,
                     # URL for the smallest image to hash it
-                    hashing_url: photo["photo_75"],
+                    hashing_url: smallest,
                     # VK name for the photo
                     vk_string: "photo#{photo["owner_id"]}_#{photo["id"]}",
                     suggested_post_id: suggested_post_id
                   }
 
-                %{"doc" => doc, "type" => "doc"} ->
+                %{
+                  "doc" => %{
+                    "type" => doc_type,
+                    "url" => doc_url,
+                    "owner_id" => owner_id,
+                    "id" => id
+                  },
+                  "type" => "doc"
+                } ->
                   type =
-                    case doc["type"] do
+                    case doc_type do
                       # GIF
                       3 ->
                         :animation
@@ -467,9 +465,9 @@ defmodule DevRandom.Platforms.VK.Suggested do
 
                   %PostAttachment{
                     type: type,
-                    url: doc["url"],
-                    hashing_url: doc["url"],
-                    vk_string: "doc#{doc["owner_id"]}_#{doc["id"]}",
+                    url: doc_url,
+                    hashing_url: doc_url,
+                    vk_string: "doc#{owner_id}_#{id}",
                     # Just store it in attachments since posts are uniform
                     suggested_post_id: suggested_post_id
                   }
