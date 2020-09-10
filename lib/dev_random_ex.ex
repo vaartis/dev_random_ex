@@ -65,15 +65,15 @@ defmodule DevRandom do
             case att.type do
               # GIF
               :animation ->
-                {"sendAnimation", :animation, Attachment.tg_file_string(att)}
+                {"sendAnimation", "animation", Attachment.tg_file_string(att)}
 
               # Image
               :photo ->
-                {"sendPhoto", :photo, Attachment.tg_file_string(att)}
+                {"sendPhoto", "photo", Attachment.tg_file_string(att)}
 
               # Other
               :other ->
-                {"sendDocument", :document, Attachment.tg_file_string(att)}
+                {"sendDocument", "document", Attachment.tg_file_string(att)}
             end
           end
         )
@@ -107,16 +107,23 @@ defmodule DevRandom do
 
       case tfed_attachments do
         [{endpointName, parameterName, url}] ->
+          downloaded = HTTPoison.get!(url).body
+
           # Send the request to the selected endpoint with a parmeter
           # named parameterName, as all these endpoints have different
           # parameter names
           %{"ok" => true} =
-            tg_req(endpointName, %{
-              :chat_id => tg_group_id,
-              parameterName => url,
-              :caption => text,
-              :parse_mode => "Markdown"
-            })
+            tg_req(
+              endpointName,
+              [
+                {"chat_id", tg_group_id},
+                {"caption", text},
+                {"parse_mode", "Markdown"},
+                {parameterName, downloaded,
+                 {"form-data", [{"name", parameterName}, {"filename", Path.basename(url)}]}, []}
+              ],
+              multipart: true
+            )
 
         atts ->
           text_msg_id =
@@ -134,12 +141,20 @@ defmodule DevRandom do
           Enum.each(
             atts,
             fn {endpointName, parameterName, url} ->
+              downloaded = HTTPoison.get!(url).body
+
               %{"ok" => true} =
-                tg_req(endpointName, %{
-                  :chat_id => tg_group_id,
-                  parameterName => url,
-                  :reply_to_message_id => text_msg_id
-                })
+                tg_req(
+                  endpointName,
+                  [
+                    {"chat_id", tg_group_id},
+                    {"reply_to_message_id", text_msg_id},
+                    {parameterName, downloaded,
+                     {"form-data", [{"name", parameterName}, {"filename", Path.basename(url)}]},
+                     []}
+                  ],
+                  multipart: true
+                )
             end
           )
       end
@@ -159,16 +174,24 @@ defmodule DevRandom do
     {:noreply, state}
   end
 
-  def tg_req(method_name, params) do
+  def tg_req(method_name, params, opts \\ []) do
     tg_token = Application.get_env(:dev_random_ex, :tg_token)
 
     query_result =
-      HTTPoison.post!(
-        "https://api.telegram.org/bot#{tg_token}/#{method_name}",
-        Jason.encode!(params),
-        [{"content-type", "application/json"}],
-        recv_timeout: :infinity
-      )
+      if opts[:multipart] do
+        HTTPoison.post!(
+          "https://api.telegram.org/bot#{tg_token}/#{method_name}",
+          {:multipart, params},
+          recv_timeout: :infinity
+        )
+      else
+        HTTPoison.post!(
+          "https://api.telegram.org/bot#{tg_token}/#{method_name}",
+          Jason.encode!(params),
+          [{"content-type", "application/json"}],
+          recv_timeout: :infinity
+        )
+      end
 
     Poison.decode!(query_result.body)
   end
