@@ -26,7 +26,7 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.Telegram.PostAt
     end
   end
 
-  def tg_file_string(data), do: data.file_id
+  def tg_file_string(data), do: {:tg, data.file_id}
 
   def vk_file_string(data),
     do: DevRandom.Platforms.VK.upload_photo_to_wall(data.type, photo_url(data))

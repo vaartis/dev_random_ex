@@ -20,7 +20,7 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.VK.PostAttachme
     }
   end
 
-  def tg_file_string(data), do: data.url
+  def tg_file_string(data), do: {:url, data.url}
 
   def vk_file_string(data), do: data.vk_string
 end

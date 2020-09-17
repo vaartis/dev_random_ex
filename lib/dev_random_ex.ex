@@ -107,7 +107,34 @@ defmodule DevRandom do
 
       case tfed_attachments do
         [{endpointName, parameterName, url}] ->
-          downloaded = HTTPoison.get!(url).body
+          {params, opts} =
+            case url do
+              {:url, url} ->
+                downloaded = HTTPoison.get!(url).body
+
+                {
+                  [
+                    {"chat_id", tg_group_id},
+                    {"caption", text},
+                    {"parse_mode", "Markdown"},
+                    {parameterName, downloaded,
+                     {"form-data", [{"name", parameterName}, {"filename", Path.basename(url)}]},
+                     []}
+                  ],
+                  [multipart: true]
+                }
+
+              {:tg, file_id} ->
+                {
+                  %{
+                    :chat_id => tg_group_id,
+                    :caption => text,
+                    :parse_mode => "Markdown",
+                    parameterName => file_id
+                  },
+                  []
+                }
+            end
 
           # Send the request to the selected endpoint with a parmeter
           # named parameterName, as all these endpoints have different
@@ -115,14 +142,8 @@ defmodule DevRandom do
           %{"ok" => true} =
             tg_req(
               endpointName,
-              [
-                {"chat_id", tg_group_id},
-                {"caption", text},
-                {"parse_mode", "Markdown"},
-                {parameterName, downloaded,
-                 {"form-data", [{"name", parameterName}, {"filename", Path.basename(url)}]}, []}
-              ],
-              multipart: true
+              params,
+              opts
             )
 
         atts ->
@@ -140,7 +161,8 @@ defmodule DevRandom do
 
           Enum.each(
             atts,
-            fn {endpointName, parameterName, url} ->
+            # Multiple attachments can only come from VK, so assume URL here
+            fn {endpointName, parameterName, {:url, url}} ->
               downloaded = HTTPoison.get!(url).body
 
               %{"ok" => true} =

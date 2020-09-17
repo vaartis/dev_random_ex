@@ -16,7 +16,7 @@ defimpl DevRandom.Platforms.Attachment, for: DevRandom.Platforms.OldDanbooru.Pos
     end
   end
 
-  def tg_file_string(data), do: data.url
+  def tg_file_string(data), do: {:url, data.url}
   def vk_file_string(data), do: DevRandom.Platforms.VK.upload_photo_to_wall(data.type, data.url)
 end
 
