@@ -148,7 +148,7 @@ defmodule DevRandom do
 
         atts ->
           text_msg_id =
-            (
+            unless is_nil(text) or String.trim(text) == "" do
               %{"ok" => true, "result" => %{"message_id" => text_msg_id}} =
                 tg_req("sendMessage", %{
                   chat_id: tg_group_id,
@@ -157,28 +157,32 @@ defmodule DevRandom do
                 })
 
               text_msg_id
-            )
-
-          Enum.each(
-            atts,
-            # Multiple attachments can only come from VK, so assume URL here
-            fn {endpointName, parameterName, {:url, url}} ->
-              downloaded = HTTPoison.get!(url).body
-
-              %{"ok" => true} =
-                tg_req(
-                  endpointName,
-                  [
-                    {"chat_id", tg_group_id},
-                    {"reply_to_message_id", text_msg_id},
-                    {parameterName, downloaded,
-                     {"form-data", [{"name", parameterName}, {"filename", Path.basename(url)}]},
-                     []}
-                  ],
-                  multipart: true
-                )
             end
-          )
+
+          media_info =
+            Enum.map(atts, fn {_, _, {:url, url}} ->
+              %{type: "photo", media: "attach://#{Path.basename(url)}"}
+            end)
+
+          atts_form_data =
+            Enum.map(atts, fn {_, _, {:url, url}} ->
+              downloaded = HTTPoison.get!(url).body
+              name = Path.basename(url)
+
+              {name, downloaded, {"form-data", [{"name", name}, {"filename", name}]}, []}
+            end)
+
+          %{"ok" => true} =
+            tg_req(
+              "sendMediaGroup",
+              [
+                {"chat_id", tg_group_id},
+                {"media", Jason.encode!(media_info)}
+              ] ++
+                if(text_msg_id, do: [{"reply_to_message_id", text_msg_id}], else: []) ++
+                atts_form_data,
+              multipart: true
+            )
       end
     end
 

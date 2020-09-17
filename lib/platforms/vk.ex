@@ -326,7 +326,11 @@ defmodule DevRandom.Platforms.VK do
             post_id: post_id,
             message: text,
             signed: if(is_anon, do: 0, else: 1),
-            copyright: post.source_link
+            copyright: post.source_link,
+            attachments:
+              post.attachments
+              |> Enum.map(&DevRandom.Platforms.Attachment.vk_file_string/1)
+              |> Enum.join(",")
           }
         )
 
