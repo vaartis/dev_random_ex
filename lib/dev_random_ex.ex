@@ -168,22 +168,18 @@ defmodule DevRandom do
             )
 
         atts ->
-          text_msg_id =
-            unless is_nil(text) or String.trim(text) == "" do
-              %{"ok" => true, "result" => %{"message_id" => text_msg_id}} =
-                tg_req("sendMessage", %{
-                  chat_id: tg_group_id,
-                  text: text,
-                  parse_mode: "Markdown"
-                })
-
-              text_msg_id
-            end
-
           media_info =
             Enum.map(atts, fn {_, _, {:url, url}} ->
               %{type: "photo", media: "attach://#{Path.basename(url)}"}
             end)
+
+          # Put a caption on the first media if there is text
+          media_info =
+            unless is_nil(text) or String.trim(text) == "" do
+              List.update_at(media_info, 0, &Map.put(&1, caption: text))
+            else
+              media_info
+            end
 
           atts_form_data =
             Enum.map(atts, fn {_, _, {:url, url}} ->
@@ -199,9 +195,7 @@ defmodule DevRandom do
               [
                 {"chat_id", tg_group_id},
                 {"media", Jason.encode!(media_info)}
-              ] ++
-                if(text_msg_id, do: [{"reply_to_message_id", text_msg_id}], else: []) ++
-                atts_form_data,
+              ] ++ atts_form_data,
               multipart: true
             )
       end
