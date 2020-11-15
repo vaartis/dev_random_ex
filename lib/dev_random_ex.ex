@@ -18,14 +18,15 @@ defmodule DevRandom do
   @impl true
   @spec init(args :: map) :: {atom, map}
   def init(%{token: token, group_id: group_id} = args) when token != nil and group_id != nil do
-    msgs_child = [
-      {DevRandom.Messages, []}
+    children = [
+      {DevRandom.Messages, []},
+      {Task.Supervisor, [name: __MODULE__.TaskSupervisor]}
     ]
 
     DevRandom.Platforms.VK.Fuse.start()
     DevRandom.Platforms.OldDanbooru.Fuse.start()
 
-    Supervisor.start_link(msgs_child, strategy: :one_for_one, name: DevRandom.UtilsSupervisor)
+    Supervisor.start_link(children, strategy: :one_for_one, name: DevRandom.UtilsSupervisor)
 
     {
       :ok,
@@ -35,6 +36,26 @@ defmodule DevRandom do
 
   @impl true
   def handle_cast(:post, state) do
+    task_handle =
+      Task.Supervisor.async_nolink(__MODULE__.TaskSupervisor, fn -> do_post(state) end)
+
+    case Task.yield(task_handle, 30_000) || Task.shutdown(task_handle, :brutal_kill) do
+      {:ok, returned_val} ->
+        returned_val
+
+      {:exit, _} ->
+        Logger.warn("Encountered an error while posting, trying again.")
+
+        handle_cast(:post, state)
+
+      nil ->
+        Logger.warn("Posting took too long, trying again.")
+
+        handle_cast(:post, state)
+    end
+  end
+
+  defp do_post(state) do
     tg_group_id = Application.get_env(:dev_random_ex, :tg_group_id)
 
     :random.seed(:os.timestamp())
