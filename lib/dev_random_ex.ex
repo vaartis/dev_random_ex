@@ -76,7 +76,7 @@ defmodule DevRandom do
         if post, do: {post, src}
       end)
 
-    if maybe_use_attachments(post.attachments) do
+    if should_use_attachments?(post.attachments) do
       # transform attachments into a more universal format to
       # send them later
       tfed_attachments =
@@ -176,7 +176,7 @@ defmodule DevRandom do
           # Put a caption on the first media if there is text
           media_info =
             unless is_nil(text) or String.trim(text) == "" do
-              List.update_at(media_info, 0, &Map.put(&1, caption: text))
+              List.update_at(media_info, 0, &Map.put(&1, :caption, text))
             else
               media_info
             end
@@ -210,6 +210,7 @@ defmodule DevRandom do
         Logger.info("VK post limit reached, will not post there.")
     end
 
+    use_attachments(post.attachments)
     source.cleanup(post)
 
     {:noreply, state}
@@ -237,18 +238,20 @@ defmodule DevRandom do
     Poison.decode!(query_result.body)
   end
 
-  def maybe_use_attachments(attachments) do
+  def should_use_attachments?(attachments) do
     attachment_hashes =
       attachments
       |> Enum.map(fn a -> Attachment.phash(a) end)
 
-    if Enum.all?(attachment_hashes, &image_used_recently?/1) do
-      false
-    else
-      Enum.each(attachment_hashes, &use_image/1)
+    not Enum.all?(attachment_hashes, &image_used_recently?/1)
+  end
 
-      true
-    end
+  def use_attachments(attachments) do
+    attachment_hashes =
+      attachments
+      |> Enum.map(fn a -> Attachment.phash(a) end)
+
+    Enum.each(attachment_hashes, &use_image/1)
   end
 
   def image_recent_lookup(image_hash) do
@@ -301,17 +304,18 @@ defmodule DevRandom do
       # Let it be two weeks for starters
       :dets.insert(
         RecentImages,
-        {image_hash, %{last_used: Timex.today(), next_use_allowed_in: 14}}
+        {image_hash, %{last_used: Timex.today(), next_use_allowed_in: 30}}
       )
     else
       # Get the last use
       {_, %{next_use_allowed_in: next_use_allowed_in}} = List.first(lookup_result)
 
       # Make the next allowed use time twice as long
-      :dets.insert(
-        RecentImages,
-        {image_hash, %{last_used: Timex.today(), next_use_allowed_in: next_use_allowed_in * 2}}
-      )
+      :ok =
+        :dets.insert(
+          RecentImages,
+          {image_hash, %{last_used: Timex.today(), next_use_allowed_in: next_use_allowed_in * 2}}
+        )
     end
   end
 
