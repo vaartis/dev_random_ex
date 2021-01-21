@@ -287,10 +287,13 @@ defmodule DevRandom do
       # The image was not used
       false
     else
-      [{_, %{last_used: date, next_use_allowed_in: next_use_allowed_in}}] = lookup_result
+      # [{_, %{last_used: date, next_use_allowed_in: next_use_allowed_in}}] = lookup_result
 
       # Image was posted withing the next allowed use interval
-      Timex.today() in Timex.Interval.new(from: date, until: [days: next_use_allowed_in])
+      # Timex.today() in Timex.Interval.new(from: date, until: [days: next_use_allowed_in])
+
+      # Never allow the same image
+      true
     end
   end
 
