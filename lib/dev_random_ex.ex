@@ -43,10 +43,16 @@ defmodule DevRandom do
       {:ok, returned_val} ->
         returned_val
 
-      {:exit, _} ->
-        Logger.warn("Encountered an error while posting, trying again.")
+      {:exit, err} ->
+        case err do
+          {{:badmatch, {:error, %{"error_code" => 29}}}, _} ->
+            Logger.warn("VK api limit reached, giving up for now")
 
-        handle_cast(:post, state)
+          _ ->
+            Logger.warn("Encountered an error while posting, trying again.")
+
+            handle_cast(:post, state)
+        end
 
       nil ->
         Logger.warn("Posting took too long, trying again.")
